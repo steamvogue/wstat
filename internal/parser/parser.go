@@ -22,6 +22,9 @@ type Record struct {
 	UA     string
 	Bot    bool
 	Static bool
+	// LatencyUs is the request duration in microseconds when the source
+	// format provides one (php-fpm access log %d); 0 otherwise.
+	LatencyUs int64
 }
 
 var staticExts = map[string]struct{}{
@@ -40,6 +43,15 @@ func IsStatic(path string) bool {
 	_, ok := staticExts[strings.ToLower(path[dot:])]
 	return ok
 }
+
+// ParseTimeToken parses an access-log timestamp token
+// ("21/Oct/2025:14:26:43 +0200", offset optional). Exported for the php-fpm
+// access-log parser, which shares the timestamp format.
+func ParseTimeToken(s string) (time.Time, bool) { return parseTime(s) }
+
+// SplitRequestLine splits a request line into method and path (query
+// stripped, leading // normalized). Exported for the php-fpm parser.
+func SplitRequestLine(req string) (method, path string) { return splitRequest(req) }
 
 var botMarkers = []string{
 	"bot", "spider", "crawler", "slurp", "curl/", "wget",

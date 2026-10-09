@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/steamvogue/wstat/internal/fpm"
 	"github.com/steamvogue/wstat/internal/logsrc"
 	"github.com/steamvogue/wstat/internal/parser"
 	"github.com/steamvogue/wstat/internal/store"
@@ -126,6 +127,7 @@ type Model struct {
 	width      int
 	height     int
 	focus      int // 0 hosts, 1 urls, 2 clients, 3 stream
+	view       int // 0 dashboard, 1 services
 	zoom       bool
 	sel        [4]int
 	filters    store.Filters
@@ -134,6 +136,8 @@ type Model struct {
 	theme      int
 	search     string
 	searchMode bool
+
+	fpmViews func() []fpm.PoolView
 
 	hosts   []store.Row
 	urls    []store.Row
@@ -144,8 +148,8 @@ type Model struct {
 	started time.Time
 }
 
-func New(st *store.Store, tailer *logsrc.Tailer) Model {
-	return Model{st: st, tailer: tailer, started: time.Now()}
+func New(st *store.Store, tailer *logsrc.Tailer, fpmViews func() []fpm.PoolView) Model {
+	return Model{st: st, tailer: tailer, fpmViews: fpmViews, started: time.Now()}
 }
 
 func (m Model) Init() tea.Cmd { return tick() }
@@ -341,6 +345,9 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "f": // freeze stream auto-follow
 		m.frozen = !m.frozen
 		return nil, true
+	case "v": // cycle Dashboard / Services
+		m.view = (m.view + 1) % 2
+		return nil, true
 	case "T": // cycle theme
 		m.theme = (m.theme + 1) % len(themes)
 		applyTheme(m.theme)
@@ -490,6 +497,11 @@ func (m Model) chips() []string {
 	if m.frozen {
 		chips = append(chips, "frozen")
 	}
+	if views := m.fpmSnapshot(); len(views) > 0 {
+		if ok, msg := fpm.AnyAlert(views); ok {
+			chips = append(chips, msg)
+		}
+	}
 	return chips
 }
 
@@ -549,6 +561,9 @@ func (m Model) searchLine() string {
 }
 
 func (m Model) body() string {
+	if m.view == 1 {
+		return m.servicesBody()
+	}
 	if m.zoom {
 		return m.panel(m.focus, m.width, m.height-2)
 	}
@@ -680,18 +695,31 @@ func (m *Model) hostLines(w, viewH int) []string {
 	return out
 }
 
+func (m *Model) anyLatency() bool {
+	for _, r := range m.urls {
+		if r.LatencyUs > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Model) urlLines(w, viewH int) []string {
 	rows := m.filteredRows(1)
 	if len(rows) == 0 {
 		return nil
+	}
+	latCol := 0
+	if m.anyLatency() {
+		latCol = 7
 	}
 	pathFiltered := len(m.filters.Paths) > 0
 	start := windowStart(m.sel[1], len(rows), viewH)
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
 		r := rows[i]
-		vhostW := min(pathW(w)/3, 14)
-		pathW := w - 23 - vhostW
+		vhostW := min((w-23-latCol)/3, 14)
+		pathW := w - 23 - vhostW - latCol
 		if pathW < 8 {
 			pathW = 8
 		}
@@ -707,6 +735,9 @@ func (m *Model) urlLines(w, viewH int) []string {
 			pad(styFaint, trunc(r.Path, pathW), pathW) +
 			rightAligned(styLabel.Render(humanInt(r.Hits)), 8) +
 			rightAligned(styLabel.Render(humanRate(r.Rate)), 7)
+		if latCol > 0 {
+			row += rightAligned(styLabel.Render(humanLatency(r.LatencyUs)), latCol)
+		}
 		if i == m.sel[1] && m.focus == 1 {
 			row = stySel.Render(row)
 		}
@@ -714,8 +745,6 @@ func (m *Model) urlLines(w, viewH int) []string {
 	}
 	return out
 }
-
-func pathW(w int) int { return w - 23 }
 
 func (m *Model) clientLines(w, viewH int) []string {
 	rows := m.filteredRows(2)
@@ -789,6 +818,152 @@ func (m *Model) streamLines(w, viewH int) []string {
 			row = stySel.Render(row)
 		}
 		out = append(out, row)
+	}
+	return out
+}
+
+// servicesBody renders the Services view: php-fpm pools + source health.
+func (m Model) servicesBody() string {
+	streamH := clamp((m.height-2)*30/100, 4, 14)
+	tablesH := (m.height - 2) - streamH
+	gap := " "
+	leftW := (m.width - 1) / 2
+	rightW := m.width - 1 - leftW
+	fpmBox := m.fpmPanel(leftW, tablesH)
+	srcBox := m.sourcesPanel(rightW, tablesH)
+	top := lipgloss.JoinHorizontal(lipgloss.Top, fpmBox, gap, srcBox)
+	bottom := m.panel(3, m.width, streamH)
+	return strings.Join([]string{top, bottom}, "\n")
+}
+
+func (m Model) fpmPanel(w, h int) string {
+	contentW := w - 2
+	if contentW < 8 {
+		contentW = 8
+	}
+	viewH := h - 3
+	if viewH < 1 {
+		viewH = 1
+	}
+	lines := m.fpmLines(contentW, viewH)
+	var title string
+	views := m.fpmSnapshot()
+	if len(views) == 0 {
+		title = " PHP-FPM "
+		if len(lines) == 0 {
+			lines = []string{styFaint.Render("no pools found")}
+		}
+	} else {
+		title = fmt.Sprintf(" PHP-FPM (%d pools) ", len(views))
+	}
+	return m.boxed(0, title, lines, contentW, h)
+}
+
+func (m Model) sourcesPanel(w, h int) string {
+	contentW := w - 2
+	if contentW < 8 {
+		contentW = 8
+	}
+	viewH := h - 3
+	if viewH < 1 {
+		viewH = 1
+	}
+	lines := m.sourceLines(contentW, viewH)
+	title := " SOURCE HEALTH "
+	return m.boxed(0, title, lines, contentW, h)
+}
+
+// boxed renders a bordered panel with title (unfocused dim styling).
+func (m Model) boxed(_ int, title string, lines []string, contentW, h int) string {
+	sty := styTitleDim
+	t := sty.Render(title)
+	var b strings.Builder
+	b.WriteString(t + styFaint.Render(strings.Repeat("─", max(0, contentW-lipgloss.Width(t)))))
+	mw := lipgloss.NewStyle().MaxWidth(contentW)
+	for _, l := range lines {
+		b.WriteByte('\n')
+		b.WriteString(mw.Render(l))
+	}
+	return styBorderDim.Width(contentW).Height(h - 2).Render(b.String())
+}
+
+func (m Model) fpmSnapshot() []fpm.PoolView {
+	if m.fpmViews == nil {
+		return nil
+	}
+	return m.fpmViews()
+}
+
+func (m Model) fpmLines(w, viewH int) []string {
+	views := m.fpmSnapshot()
+	var out []string
+	for _, v := range views {
+		if len(out) >= viewH {
+			break
+		}
+		state := styStatusOK.Render("●")
+		switch {
+		case v.Status != nil:
+		case v.Disabled:
+			state = styDim.Render("○")
+		case v.Dead:
+			state = styStatus5xx.Render("✗")
+		}
+		var queue string
+		if v.Status != nil {
+			if v.Status.ListenQueue > 0 {
+				queue = styStatus5xx.Render(fmt.Sprintf("q:%d", v.Status.ListenQueue))
+			} else {
+				queue = styLabel.Render("q:0")
+			}
+		}
+		var row string
+		if v.Status != nil {
+			row = fmt.Sprintf("%s %-10s %-9s a:%d/%d %s slow:%d %s",
+				state, trunc(v.Name, 10), v.PMMode,
+				v.Status.ActiveProcesses, v.Status.TotalProcesses,
+				queue, v.Status.SlowRequests+v.SlowSeen,
+				styDim.Render("mem:"+humanBytes(v.RSSKB*1024)))
+		} else {
+			detail := v.Err
+			if detail == "" {
+				detail = "status unavailable"
+			}
+			wrk := ""
+			if v.Workers > 0 {
+				wrk = styLabel.Render(fmt.Sprintf(" %dw", v.Workers))
+			}
+			row = fmt.Sprintf("%s %-10s%s %s", state, trunc(v.Name, 10), wrk, styFaint.Render(trunc(detail, w-24)))
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func (m Model) sourceLines(w, viewH int) []string {
+	srcs := m.tailer.Sources()
+	var out []string
+	live, replay := 0, 0
+	for _, s := range srcs {
+		if s.Replay {
+			replay++
+		} else {
+			live++
+		}
+	}
+	out = append(out, styLabel.Render(fmt.Sprintf("live:%d replay:%d", live, replay)))
+	for _, s := range srcs {
+		if len(out) >= viewH {
+			break
+		}
+		kind := "R"
+		if !s.Replay {
+			kind = styStatusOK.Render("L")
+		}
+		out = append(out, fmt.Sprintf(" %s %s %s",
+			kind,
+			padStyled(vhostStyle(s.Vhost), trunc(s.Vhost, 14), 14),
+			styFaint.Render(trunc(s.Path, w-22))))
 	}
 	return out
 }
@@ -876,6 +1051,19 @@ func humanRate(r float64) string {
 		return fmt.Sprintf("%.1f/s", r)
 	}
 	return fmt.Sprintf("%d/s", int(r))
+}
+
+func humanLatency(us int64) string {
+	switch {
+	case us <= 0:
+		return "-"
+	case us < 1000:
+		return fmt.Sprintf("%dµs", us)
+	case us < 1000000:
+		return fmt.Sprintf("%.1fms", float64(us)/1000)
+	default:
+		return fmt.Sprintf("%.1fs", float64(us)/1e6)
+	}
 }
 
 func humanBytes(b int64) string {

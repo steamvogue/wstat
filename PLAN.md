@@ -153,7 +153,7 @@ backfill = "10m"; backfill_max_bytes = 8388608
 | P2 | Wizard + config lifecycle (edit/set/validate/redetect, hot reload, import/export) | 1–1.5 d ✅ (shipped 2026-10-09: TOML config project+user, glob pins, detection cache w/ host key, `init` wizard + fallback, `config show/redetect/edit`) |
 | P3 | Full filters (fuzzy, client/path/method/bot/static), view switcher, sort, freeze, themes | 1 d ✅ |
 | P3.5 | Rotated/gz history replay (`*.log.N`, `*.log.N.gz` — replay-only sources), inotify→poll fix (missed-append race) | — ✅ |
-| P4 | php-fpm (FCGI spike first) tiers 1–3 + Services view + latency columns | 1–1.5 d |
+| P4 | php-fpm (FCGI spike first) tiers 1–3 + Services view + latency columns | 1–1.5 d ✅ (shipped 2026-10-09: internal FastCGI client validated live against php-fpm 8.4; /proc tier; %d access-log latency; `v` Services view; doctor section) |
 | P5 | mod_status `?auto` poller, slowlog list, backfill `--since`, polish | 1 d |
 | P5.5 | Headless `wstat top` (ngxtop-style grammar, JSON output — scriptability for public users) | 0.5–1 d |
 | P6 | Stretch: mod_status in-flight list (ExtendedStatus + HTML scoreboard, best-effort), `ss` connections view, GeoLite2, alerts, ssh source, nginx provider deep support | later |

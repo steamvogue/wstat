@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/steamvogue/wstat/internal/fpm"
 	"github.com/steamvogue/wstat/internal/logsrc"
 	"github.com/steamvogue/wstat/internal/parser"
 	"github.com/steamvogue/wstat/internal/store"
@@ -26,7 +27,7 @@ func mkModel(t *testing.T) Model {
 	}
 	tailer := logsrc.Start(nil, nil, 0, nil) // no files; used only for source count
 	defer tailer.Stop()
-	m := New(st, tailer)
+	m := New(st, tailer, nil)
 	return m
 }
 
@@ -169,6 +170,33 @@ func TestSortAndFreeze(t *testing.T) {
 	m = drive(m, tea.KeyPressMsg{Text: "T"}, tea.KeyPressMsg{Text: "T"})
 	if m.theme != 0 {
 		t.Errorf("theme cycle broken: %d", m.theme)
+	}
+}
+
+func TestServicesViewRenders(t *testing.T) {
+	m := mkModel(t)
+	m.fpmViews = func() []fpm.PoolView {
+		return []fpm.PoolView{
+			{Pool: fpm.Pool{Name: "www", PMMode: "dynamic"}, Status: &fpm.Status{
+				ProcessManager: "dynamic", ActiveProcesses: 2, TotalProcesses: 3, ListenQueue: 0,
+			}},
+			{Pool: fpm.Pool{Name: "idle", PMMode: "ondemand"}, Disabled: true},
+		}
+	}
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, tickMsg(time.Now()), tea.KeyPressMsg{Text: "v"})
+	out := m.render()
+	for _, want := range []string{"PHP-FPM", "SOURCE HEALTH", "www", "idle"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("services view missing %q", want)
+		}
+	}
+	if m.view != 1 {
+		t.Errorf("view = %d, want 1", m.view)
+	}
+	// v cycles back to dashboard.
+	m = drive(m, tea.KeyPressMsg{Text: "v"})
+	if m.view != 0 {
+		t.Errorf("view = %d, want 0", m.view)
 	}
 }
 

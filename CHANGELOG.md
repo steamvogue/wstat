@@ -12,6 +12,22 @@ package layout for `go install github.com/steamvogue/wstat@latest`.
 ## [Unreleased]
 
 ### Added
+- **php-fpm integration (P4)**: pool discovery (`/etc/php/*/fpm/pool.d`,
+  `/etc/php-fpm.d`, `WSTAT_FPM_POOL_GLOB` override), a minimal internal
+  FastCGI client querying `pm.status_path` (`?json&full`) over unix/tcp
+  sockets, tier-2 process stats from /proc (masters/workers per pool,
+  RSS, CPU), slowlog entry counting, and access-log tailing when the
+  pool's `access.format` records request duration (`%d`, rendered as
+  fractional seconds by PHP >= 8) — fpm access lines parse as requests
+  with per-URL mean latency shown in the TOP URLS panel.
+- **Services view** (`v` cycles Dashboard / Services): php-fpm pools
+  (active/total, listen queue, slow requests, memory, live
+  ●/disabled ○/unreachable ✗ states) and source health (live/replay per
+  path). Header chip warns on listen-queue backlog or exhausted
+  max_children.
+- **doctor: php-fpm section** — pools, socket access with remediation
+  (`usermod -aG <group>` / setfacl), status-page reachability, and the
+  `pm.status_path` enable snippet when off.
 - **Config lifecycle (P2)**: TOML config at `./wstat.toml` (project) and
   `$XDG_CONFIG_HOME/wstat/config.toml` (user), merged with project winning;
   schema `[source]` paths/seed_lines/`[source.vhost]` pins (path or glob →

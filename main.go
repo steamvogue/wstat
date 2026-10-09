@@ -8,11 +8,13 @@ import (
 	"os/exec"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/steamvogue/wstat/internal/config"
 	"github.com/steamvogue/wstat/internal/detect"
+	"github.com/steamvogue/wstat/internal/fpm"
 	"github.com/steamvogue/wstat/internal/logsrc"
 	"github.com/steamvogue/wstat/internal/parser"
 	"github.com/steamvogue/wstat/internal/store"
@@ -99,11 +101,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	// php-fpm: pools with access logs that record durations become extra
+	// sources (vhost attribution = pool name); the poller feeds the
+	// Services view.
+	fpmPools := fpm.DiscoverPools()
+	for _, pool := range fpmPools {
+		if pool.HasLatency() && fileExists(pool.AccessLog) {
+			sources = append(sources, logsrc.Source{Path: pool.AccessLog, Vhost: pool.Name})
+		}
+	}
+	var fpmViews func() []fpm.PoolView
+	var fpmPoller *fpm.Poller
+	if len(fpmPools) > 0 {
+		fpmPoller = fpm.NewPoller(fpmPools, 2*time.Second)
+		defer fpmPoller.Stop()
+		poller := fpmPoller
+		fpmViews = poller.Views
+	}
+
 	tailer := logsrc.Start(sources, rescanGlobs, seed, vhostMap)
 	st := store.New()
 	go func() {
 		for line := range tailer.Ch {
 			r, ok := parser.Parse(line.Text, line.Source.Vhost)
+			if !ok {
+				// php-fpm access.log lines (no brackets around the time).
+				r, ok = fpm.ParseAccess(line.Text, line.Source.Vhost)
+			}
 			if !ok {
 				st.AddBad()
 				continue
@@ -116,7 +140,7 @@ func main() {
 		}
 	}()
 
-	if _, err := tea.NewProgram(ui.New(st, tailer)).Run(); err != nil {
+	if _, err := tea.NewProgram(ui.New(st, tailer, fpmViews)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "wstat:", err)
 		os.Exit(1)
 	}
@@ -140,8 +164,10 @@ func runDetect(args []string) {
 }
 
 func runDoctor() string {
-	return detect.Run().Doctor() +
-		"detection:   " + detect.CacheStatus() + "\n"
+	text := detect.Run().Doctor()
+	text += fpm.DoctorText(fpm.DiscoverPools())
+	text += "detection:   " + detect.CacheStatus() + "\n"
+	return text
 }
 
 func runConfig(args []string) {
@@ -337,4 +363,9 @@ func writeInitConfig(items []wizard.Item) {
 		fmt.Printf("%q = %q\n", k, cfg.Source.Vhost[k])
 	}
 	fmt.Printf("\n%d sources selected · `wstat` now uses this config; `wstat config edit` to adjust\n", len(items))
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
 }

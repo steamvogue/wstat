@@ -105,6 +105,9 @@ type agg struct {
 	cur    int64 // live hits since last flush (seeded lines excluded)
 	rate   float64
 	last   time.Time
+
+	latSum   int64 // request duration in µs (when the source provides it)
+	latCount int64
 }
 
 func (a *agg) add(r parser.Record, now time.Time, live bool) {
@@ -126,6 +129,18 @@ func (a *agg) add(r parser.Record, now time.Time, live bool) {
 	if r.Static {
 		a.static++
 	}
+	if r.LatencyUs > 0 {
+		a.latSum += r.LatencyUs
+		a.latCount++
+	}
+}
+
+// latAvg returns the mean request duration in µs (0 when unknown).
+func (a *agg) latAvg() int64 {
+	if a.latCount == 0 {
+		return 0
+	}
+	return a.latSum / a.latCount
 }
 
 // filtered returns the hit count under the active filters.
@@ -348,17 +363,18 @@ func (s *Store) evictLocked(now time.Time) {
 
 // Row is one displayable table row.
 type Row struct {
-	Key    string // vhost or client IP
-	Vhost  string
-	Method string
-	Path   string
-	UA     string
-	Bot    bool
-	Rate   float64
-	Hits   int64 // hits under the active filters
-	Bytes  int64
-	Errs   int64
-	Last   time.Time
+	Key       string // vhost or client IP
+	Vhost     string
+	Method    string
+	Path      string
+	UA        string
+	Bot       bool
+	Rate      float64
+	Hits      int64 // hits under the active filters
+	Bytes     int64
+	Errs      int64
+	LatencyUs int64 // mean request duration when a latency source exists
+	Last      time.Time
 }
 
 // Totals is the global header summary (never filtered).
@@ -381,7 +397,7 @@ func (s *Store) Snapshot(f Filters, sorts [3]SortKey, topN int) (hostsRows []Row
 	for k, a := range s.hosts {
 		hostsRows = append(hostsRows, Row{
 			Key: k, Rate: a.rate, Hits: a.filtered(f),
-			Bytes: a.bytes, Errs: a.errs, Last: a.last,
+			Bytes: a.bytes, Errs: a.errs, LatencyUs: a.latAvg(), Last: a.last,
 		})
 	}
 	sortRows(hostsRows, sorts[0])
@@ -405,7 +421,8 @@ func (s *Store) Snapshot(f Filters, sorts [3]SortKey, topN int) (hostsRows []Row
 		urlRows = append(urlRows, Row{
 			Key:   u.vhost + " " + u.method + " " + u.path,
 			Vhost: u.vhost, Method: u.method, Path: u.path,
-			Rate: u.rate, Hits: u.filtered(f), Bytes: u.bytes, Errs: u.errs, Last: u.last,
+			Rate: u.rate, Hits: u.filtered(f), Bytes: u.bytes, Errs: u.errs,
+			LatencyUs: u.latAvg(), Last: u.last,
 		})
 	}
 	sortRows(urlRows, sorts[1])
