@@ -116,7 +116,7 @@ func seedLines(path string, maxLines int) ([]string, int64) {
 	if err != nil {
 		return nil, 0
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fi, err := f.Stat()
 	if err != nil || fi.Size() == 0 {
 		return nil, 0
@@ -173,7 +173,7 @@ func seedGzip(f *os.File, maxLines int) []string {
 	if err != nil {
 		return nil
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	ring := make([]string, maxLines)
 	n, head := 0, 0
 	var total int

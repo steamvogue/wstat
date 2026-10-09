@@ -133,8 +133,12 @@ func TestReplayOnlyDoesNotTail(t *testing.T) {
 	}
 	// Append: replay-only sources must not deliver it.
 	f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o644)
-	f.WriteString("new1\n")
-	f.Close()
+	if _, err := f.WriteString("new1\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	quiet := time.After(700 * time.Millisecond)
 	select {
 	case l := <-tr.Ch:
@@ -194,8 +198,12 @@ func TestTailRotation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.WriteString(s)
-		f.Close()
+		if _, err := f.WriteString(s); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	write("first\n")
 

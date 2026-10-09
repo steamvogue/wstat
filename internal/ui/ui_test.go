@@ -7,9 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"wstat/internal/logsrc"
-	"wstat/internal/parser"
-	"wstat/internal/store"
+	"github.com/steamvogue/wstat/internal/logsrc"
+	"github.com/steamvogue/wstat/internal/parser"
+	"github.com/steamvogue/wstat/internal/store"
 )
 
 func mkModel(t *testing.T) Model {

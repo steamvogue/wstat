@@ -1,4 +1,4 @@
-module wstat
+module github.com/steamvogue/wstat
 
 go 1.26.0
 

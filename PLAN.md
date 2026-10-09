@@ -162,11 +162,11 @@ backfill = "10m"; backfill_max_bytes = 8388608
 
 Target: publish as a general-purpose utility ("realtime per-vhost monitor for Apache/nginx hosts"). Order of operations below; the feature roadmap above feeds §8.1.5.
 
-### 8.1.0 Decision points (blocking)
-- **Module path rename**: `wstat` → `github.com/<user>/wstat` (required for `go install ...@latest`); internal imports follow mechanically (`wstat/internal/...` → new path). Must pick the GitHub user/org first.
-- **Name check**: `wstat` collisions (pkg.go.dev, brew, existing GitHub repos; Plan 9 `wstat` syscall name is harmless). Fallbacks: `vhoststat`, `wtop` (taken), `sitebeat`.
-- **LICENSE**: MIT (aligns with the Charm ecosystem it builds on).
-- Keep `PLAN.md` public (transparency is a feature) — `samples/` stays untracked (production data).
+### 8.1.0 Decision points (resolved 2026-10-09)
+- **Module path**: `github.com/steamvogue/wstat` (renamed; internal imports follow). ✅
+- **Name check**: `wstat` it is — Plan 9's `wstat` syscall name is unrelated and harmless for a Go module under this path. ✅
+- **LICENSE**: MIT. ✅
+- Keep `PLAN.md` public (transparency is a feature) — `samples/` stays untracked (production data). ✅
 
 ### 8.1.1 Repo hygiene (before first push)
 - `LICENSE` (MIT) · `README.md` (hero GIF via charmbracelet/vhs or asciinema, install: go install / release binaries / brew tap, keymap table, supported-formats matrix, filter semantics, **privacy statement** — reads logs locally, zero network calls, no telemetry, never writes to the host — comparison vs goaccess/ngxtop, dev quickstart) · `CHANGELOG.md` (Keep a Changelog) · `CONTRIBUTING.md` (short: test, lint, conventional commits) · `SECURITY.md`.

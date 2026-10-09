@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"wstat/internal/parser"
+	"github.com/steamvogue/wstat/internal/parser"
 )
 
 const (

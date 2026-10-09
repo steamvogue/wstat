@@ -10,11 +10,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"flag"
 
-	"wstat/internal/logsrc"
-	"wstat/internal/parser"
-	"wstat/internal/store"
-	"wstat/internal/ui"
+	"github.com/steamvogue/wstat/internal/logsrc"
+	"github.com/steamvogue/wstat/internal/parser"
+	"github.com/steamvogue/wstat/internal/store"
+	"github.com/steamvogue/wstat/internal/ui"
 )
+
+// version is set at build time via -ldflags "-X main.version=…".
+var version = "dev"
 
 func main() {
 	// Keep the dashboard's memory footprint bounded even under big seed
@@ -22,7 +25,12 @@ func main() {
 	debug.SetMemoryLimit(48 << 20)
 
 	seedN := flag.Int("n", 1000, "lines to seed per file on startup")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("wstat %s\n", version)
+		return
+	}
 
 	globs := flag.Args()
 	searched := logsrc.DefaultGlobs

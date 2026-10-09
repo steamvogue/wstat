@@ -11,9 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"wstat/internal/logsrc"
-	"wstat/internal/parser"
-	"wstat/internal/store"
+	"github.com/steamvogue/wstat/internal/logsrc"
+	"github.com/steamvogue/wstat/internal/parser"
+	"github.com/steamvogue/wstat/internal/store"
 )
 
 const refreshInterval = 500 * time.Millisecond

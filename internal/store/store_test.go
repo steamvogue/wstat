@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"wstat/internal/parser"
+	"github.com/steamvogue/wstat/internal/parser"
 )
 
 func rec(vhost, ip, method, path string, status int, bytes int64) parser.Record {
