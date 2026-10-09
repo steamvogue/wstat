@@ -220,10 +220,11 @@ func seedGzip(f *os.File, maxLines int) []string {
 // Tailer fans out seed+tail goroutines for discovered sources and rescans
 // the globs periodically for new log files. Lines arrive on Ch until Stop.
 type Tailer struct {
-	Ch       chan RawLine
-	globs    []string
-	seedN    int
-	vhostMap map[string]string
+	Ch          chan RawLine
+	globs       []string
+	seedN       int
+	vhostMap    map[string]string
+	rescanEvery time.Duration // test override; default 60s
 
 	stopCh   chan struct{}
 	mu       sync.Mutex
@@ -233,7 +234,7 @@ type Tailer struct {
 }
 
 // Start begins tailing the given initial sources and keeps rescanning the
-// globs (skipped when empty) every minute for new files. Sources from
+// globs (skipped when empty) periodically for new files. Sources from
 // detection are exact; rescan-discovered files get vhosts from vhostMap or
 // the filename.
 func Start(initial []Source, globs []string, seedN int, vhostMap map[string]string) *Tailer {
@@ -250,13 +251,15 @@ func Start(initial []Source, globs []string, seedN int, vhostMap map[string]stri
 	}
 	if len(globs) > 0 {
 		go func() {
-			tick := time.NewTicker(60 * time.Second)
-			defer tick.Stop()
 			for {
+				d := t.rescanEvery
+				if d <= 0 {
+					d = 60 * time.Second
+				}
 				select {
 				case <-t.stopCh:
 					return
-				case <-tick.C:
+				case <-time.After(d):
 					t.rescan()
 				}
 			}
@@ -303,6 +306,24 @@ func (t *Tailer) startSource(src *Source) {
 	go t.runSource(&s)
 }
 
+// forgetSource drops an exited tailer from the running set so the rescan
+// can restart it (self-healing after e.g. a failed reopen). The restart
+// re-seeds, which may re-deliver a few of the most recent lines — the rare
+// cost of never getting stuck.
+func (t *Tailer) forgetSource(src *Source) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if cur, ok := t.running[src.Path]; ok && cur == src {
+		delete(t.running, src.Path)
+	}
+	for i, s := range t.srcOrder {
+		if s == src {
+			t.srcOrder = append(t.srcOrder[:i], t.srcOrder[i+1:]...)
+			break
+		}
+	}
+}
+
 // runSource seeds the file's tail and then follows it with tail -F
 // semantics (rename/recreate and truncate rotation safe). Replay sources
 // (rotated/gz history) emit their seed and stop: they never tail. The seed
@@ -310,6 +331,7 @@ func (t *Tailer) startSource(src *Source) {
 // exactly once.
 func (t *Tailer) runSource(src *Source) {
 	defer t.wg.Done()
+	defer t.forgetSource(src)
 	seed, offset := seedLines(src.Path, t.seedN)
 	for _, l := range seed {
 		select {

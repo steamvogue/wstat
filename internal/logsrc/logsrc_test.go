@@ -211,11 +211,14 @@ func TestTailRotation(t *testing.T) {
 	if len(srcs) != 1 || srcs[0].Vhost != "site" {
 		t.Fatalf("discover = %+v", srcs)
 	}
-	tr := Start(Discover([]string{p}, nil), []string{p}, 10, nil)
+	tr := Start(srcs, []string{p}, 10, nil)
+	tr.rescanEvery = time.Second // fast self-heal restarts in this test
 
 	counts := map[string]int{}
-	deadline := time.After(8 * time.Second)
+	// Per-step deadline: rotation recovery is timing-sensitive on slow
+	// (e.g. race-instrumented) runners; each step gets its own budget.
 	collect := func(wantDistinct int) {
+		deadline := time.After(10 * time.Second)
 		for len(counts) < wantDistinct {
 			select {
 			case l := <-tr.Ch:
