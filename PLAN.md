@@ -178,14 +178,14 @@ Target: publish as a general-purpose utility ("realtime per-vhost monitor for Ap
 ### 8.1.2 CI (GitHub Actions)
 - `ci.yml` (push + PR):
   - **lint**: `gofmt -l` check, `go vet`, golangci-lint.
-  - **test** matrix: `ubuntu-latest` (amd64), `go-version-file: go.mod`, `go test -race -count=1 ./...` (maintainer decision: amd64-only matrix; arm64/armv7 release binaries are cross-compiled by goreleaser).
+  - **test** matrix: `ubuntu-latest` (amd64), `go-version-file: go.mod`, `go test -race -count=1 ./...` (maintainer decision: amd64-only matrix; arm64 release binaries are cross-compiled by goreleaser).
   - **build**: `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w"` (asserts the no-cgo, static-binary promise).
-- `release.yml` (tag `v*`): goreleaser → GitHub Release with tarballs for linux amd64 / arm64 / **armv6+armv7 (32-bit Pi OS users)**, sha256 checksums, SBOM.
+- `release.yml` (tag `v*`): goreleaser → GitHub Release with tarballs for linux **amd64 + arm64** (maintainer decision: drop 32-bit arm targets), sha256 checksums.
 - `dependabot.yml`: go modules + actions, weekly.
 - Later/optional: OpenSSF Scorecard badge, CodeQL, OSS-Fuzz (parser + future config scanner are natural fuzz targets).
 
 ### 8.1.3 Release mechanics
-- goreleaser config with `goarm: ["6", "7"]`; archives + checksums; optional own Homebrew tap repo (`homebrew-<name>`, goreleaser pushes the formula).
+- goreleaser config targets linux amd64/arm64 only (maintainer decision); archives + checksums; optional own Homebrew tap repo (`homebrew-<name>`, goreleaser pushes the formula).
 - Tag **v0.1.0 only after P1 + P2** (detection + wizard = "works on any host" story, which is the public pitch). An earlier `v0.1.0-rc1` tag is fine to exercise the pipeline.
 - Per-release manual checklist: live run on the Pi, clean-container detection matrix (debian+apache2, httpd image, nginx/Forge-style), `logrotate -f` simulation, RSS/CPU budget check, doctor output review.
 

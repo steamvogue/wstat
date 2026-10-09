@@ -45,7 +45,7 @@ Debian/Ubuntu/RHEL/nginx/Laravel Forge layouts.
 go install github.com/steamvogue/wstat@latest
 ```
 
-or grab a static binary (linux amd64 / arm64 / armv6-v7 for 32-bit Raspberry Pi OS)
+or grab a static binary (linux amd64 / arm64)
 from the [releases](https://github.com/steamvogue/wstat/releases) page.
 
 From source:
