@@ -178,7 +178,7 @@ Target: publish as a general-purpose utility ("realtime per-vhost monitor for Ap
 ### 8.1.2 CI (GitHub Actions)
 - `ci.yml` (push + PR):
   - **lint**: `gofmt -l` check, `go vet`, golangci-lint.
-  - **test** matrix: `ubuntu-latest` (amd64) + `ubuntu-24.04-arm` (arm64, free for public repos), `go-version-file: go.mod`, `go test -race -count=1 ./...`.
+  - **test** matrix: `ubuntu-latest` (amd64), `go-version-file: go.mod`, `go test -race -count=1 ./...` (maintainer decision: amd64-only matrix; arm64/armv7 release binaries are cross-compiled by goreleaser).
   - **build**: `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w"` (asserts the no-cgo, static-binary promise).
 - `release.yml` (tag `v*`): goreleaser → GitHub Release with tarballs for linux amd64 / arm64 / **armv6+armv7 (32-bit Pi OS users)**, sha256 checksums, SBOM.
 - `dependabot.yml`: go modules + actions, weekly.
