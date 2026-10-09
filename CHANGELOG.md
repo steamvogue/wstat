@@ -12,7 +12,26 @@ package layout for `go install github.com/steamvogue/wstat@latest`.
 ## [Unreleased]
 
 ### Added
-- **Detection engine (P1)**: `wstat doctor` (human report) and
+- **Config lifecycle (P2)**: TOML config at `./wstat.toml` (project) and
+  `$XDG_CONFIG_HOME/wstat/config.toml` (user), merged with project winning;
+  schema `[source]` paths/seed_lines/`[source.vhost]` pins (path or glob →
+  vhost, overriding detection and filenames), `[detect]` enabled/cache.
+  Precedence: CLI globs > config paths > cached detection > fresh
+  detection > default globs.
+- **Detection cache**: report persisted to
+  `$XDG_DATA_HOME/wstat/detect.json`, validated by host key (hostname,
+  distro, Apache version + config path/mtime/size, nginx config mtime);
+  stale keys re-probe automatically. `--redetect` and
+  `wstat config redetect` force a refresh; cache state shown in
+  `wstat doctor` and `wstat config show`.
+- **`wstat init` wizard**: interactive checkbox UI over detected live
+  sources (space toggle, a all/none, enter saves); writes the user config
+  with `path*` globs (covering rotated/gz history) and exact vhost pins.
+  Non-TTY environments fall back to selecting everything.
+- **`wstat config show|redetect|edit`**: effective merged config with
+  per-field origins, cache refresh, and `$EDITOR` editing with a
+  template created on first use.
+- Detection engine (P1): `wstat doctor` (human report) and
   `wstat detect --json` (machine report) plus zero-config runtime wiring.
   Probes platform, Apache (`apache2ctl -V`/`-M`), config trees
   (Include/IncludeOptional globs, Define + envvars `$VAR` expansion,
@@ -48,6 +67,9 @@ package layout for `go install github.com/steamvogue/wstat@latest`.
   UI model keymap tests; pty end-to-end smoke harnesses.
 
 ### Fixed
+- Tailers no longer start replay sources for files that rotate mid-run
+  (the old content was already delivered live; rescan now adds only live
+  files) — prevents double-counting across daily logrotate runs.
 - Tailer switched from inotify to 250 ms polling: appends landing between
   file open and inotify watch registration were silently lost.
 - Seeded history no longer feeds rate counters (no fake startup spike).

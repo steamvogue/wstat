@@ -84,7 +84,7 @@ func Discover(globs []string, vhostMap map[string]string) []Source {
 				continue
 			}
 			vhost := VhostFromFilename(base)
-			if v2, ok := vhostMap[p]; ok && v2 != "" {
+			if v2 := matchVhostPin(vhostMap, p); v2 != "" {
 				vhost = v2
 			}
 			out = append(out, Source{
@@ -96,6 +96,31 @@ func Discover(globs []string, vhostMap map[string]string) []Source {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// matchVhostPin resolves a path against the vhost map: exact match first,
+// then glob pins (e.g. "/var/log/apache2/x-access.log*" covers rotated
+// variants of the same vhost).
+func matchVhostPin(vhostMap map[string]string, path string) string {
+	if len(vhostMap) == 0 {
+		return ""
+	}
+	if v, ok := vhostMap[path]; ok && v != "" {
+		return v
+	}
+	keys := make([]string, 0, len(vhostMap))
+	for k := range vhostMap {
+		if strings.ContainsAny(k, "*?[") {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if ok, err := filepath.Match(k, path); err == nil && ok {
+			return vhostMap[k]
+		}
+	}
+	return ""
 }
 
 func vhostFromFilename(base string) string { return VhostFromFilename(base) }
@@ -302,6 +327,12 @@ func (t *Tailer) Stop() {
 
 func (t *Tailer) rescan() {
 	for _, src := range Discover(t.globs, t.vhostMap) {
+		// Rotated files surfacing mid-run are old content of already
+		// followed logs (rotation in progress): replaying them would
+		// double-count. Rotated history is a startup-seed concept only.
+		if src.Replay {
+			continue
+		}
 		t.startSource(&src)
 	}
 }

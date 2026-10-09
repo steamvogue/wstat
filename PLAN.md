@@ -150,7 +150,7 @@ backfill = "10m"; backfill_max_bytes = 8388608
 |---|---|---|
 | **MVP** | **wstat-min (Lane 1):** globs (apache+httpd+nginx/Forge), per-file combined-family fingerprint, `%v`/filename vhosts, rotation-safe tail + 1k-line seed, store, header + HOSTS/URLS/CLIENTS + stream, colors, filters `/ h x X`, zoom, cross-filter semantics, DoD tests | **1.5–2 d** ✅ |
 | P1 | Detection engine (providers, scoring, `detect --json`, `doctor`) — ✅ shipped 2026-10-09; detection cache deferred to P2 (startup detection is ~100ms) | 1.5–2 d ✅ |
-| P2 | Wizard + config lifecycle (edit/set/validate/redetect, hot reload, import/export) | 1–1.5 d |
+| P2 | Wizard + config lifecycle (edit/set/validate/redetect, hot reload, import/export) | 1–1.5 d ✅ (shipped 2026-10-09: TOML config project+user, glob pins, detection cache w/ host key, `init` wizard + fallback, `config show/redetect/edit`) |
 | P3 | Full filters (fuzzy, client/path/method/bot/static), view switcher, sort, freeze, themes | 1 d ✅ |
 | P3.5 | Rotated/gz history replay (`*.log.N`, `*.log.N.gz` — replay-only sources), inotify→poll fix (missed-append race) | — ✅ |
 | P4 | php-fpm (FCGI spike first) tiers 1–3 + Services view + latency columns | 1–1.5 d |

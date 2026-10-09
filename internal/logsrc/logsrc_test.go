@@ -34,6 +34,95 @@ func TestVhostFromFilename(t *testing.T) {
 	}
 }
 
+func TestVhostPinGlobs(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"pcash.local-access.log", "pcash.local-access.log.1", "other-access.log"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x\ny\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pins := map[string]string{
+		filepath.Join(dir, "pcash.local-access.log*"): "pcash.home",
+	}
+	srcs := Discover([]string{filepath.Join(dir, "*access*")}, pins)
+	byBase := map[string]Source{}
+	for _, s := range srcs {
+		byBase[filepath.Base(s.Path)] = s
+	}
+	if v := byBase["pcash.local-access.log"].Vhost; v != "pcash.home" {
+		t.Errorf("live pin = %q", v)
+	}
+	if v := byBase["pcash.local-access.log.1"].Vhost; v != "pcash.home" {
+		t.Errorf("rotated pin = %q, want pin to cover rotations", v)
+	}
+	if v := byBase["other-access.log"].Vhost; v != "other" {
+		t.Errorf("unpinned = %q, want filename fallback", v)
+	}
+}
+
+// TestRescanSkipsRotated guards against double-counting: when a followed
+// log rotates mid-run, the rescan must NOT start a replay source for the
+// rotated file (its content was already delivered live).
+func TestRescanSkipsRotated(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "site-access.log")
+	glob := filepath.Join(dir, "*access*.log*")
+	write := func(s string) {
+		f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(s); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("one\ntwo\n")
+
+	tr := Start(Discover([]string{glob}, nil), []string{glob}, 10, nil, WithRescanEvery(time.Second))
+	defer tr.Stop()
+
+	counts := map[string]int{}
+	step := time.After(4 * time.Second)
+	read := func(want int) {
+		for len(counts) < want {
+			select {
+			case l := <-tr.Ch:
+				counts[l.Text]++
+			case <-step:
+				t.Fatalf("timeout: counts=%v", counts)
+			}
+		}
+	}
+	read(2) // seed one/two
+
+	// Rotate: rename + fresh file.
+	if err := os.Rename(p, p+".1"); err != nil {
+		t.Fatal(err)
+	}
+	write("three\n")
+	read(3)
+
+	// Let at least one rescan tick pass, then verify no duplicates.
+	time.Sleep(2500 * time.Millisecond)
+	quiet := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case l := <-tr.Ch:
+			counts[l.Text]++
+		case <-quiet:
+			for k, n := range counts {
+				if n != 1 {
+					t.Errorf("line %q delivered %d times (rotation double-count)", k, n)
+				}
+			}
+			return
+		}
+	}
+}
+
 func TestVhostFromRotatedNames(t *testing.T) {
 	cases := map[string]string{
 		"cms.local-access.log.12.gz":  "cms.local",

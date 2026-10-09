@@ -59,11 +59,20 @@ cd wstat && go build -o wstat .
 
 ```sh
 wstat                    # auto-detect host layout (Apache/nginx config scan + globs)
+wstat init               # pick sources interactively; writes your config
 wstat doctor             # what wstat found on this host — attach to bug reports
 wstat detect --json      # machine-readable detection report
+wstat config show        # effective config + origins + detection cache state
+wstat config edit        # edit the user config ($EDITOR)
 wstat 'samples/*access*' # explicit globs (multiple allowed)
 wstat -n 5000            # seed more history lines per file
 ```
+
+Configuration lives in `./wstat.toml` (project) and
+`~/.config/wstat/config.toml` (user, written by `wstat init`), with explicit
+paths and vhost pins (globs allowed) overriding detection. Detection results
+are cached and refreshed automatically when your Apache/nginx config or
+version changes (`wstat config redetect` forces it).
 
 Zero-config detection scans your Apache/nginx configuration (via `apache2ctl -V` /
 `/etc/nginx/nginx.conf`, includes, `envvars`/`Define` expansion) to attribute each log
