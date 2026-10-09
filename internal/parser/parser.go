@@ -22,6 +22,24 @@ type Record struct {
 	Time   time.Time
 	UA     string
 	Bot    bool
+	Static bool
+}
+
+var staticExts = map[string]struct{}{
+	".css": {}, ".js": {}, ".mjs": {}, ".map": {}, ".png": {}, ".jpg": {},
+	".jpeg": {}, ".gif": {}, ".webp": {}, ".svg": {}, ".ico": {},
+	".woff": {}, ".woff2": {}, ".ttf": {}, ".otf": {},
+}
+
+// IsStatic reports whether a URL path looks like a static asset.
+func IsStatic(path string) bool {
+	slash := strings.LastIndexByte(path, '/')
+	dot := strings.LastIndexByte(path, '.')
+	if dot < slash+1 {
+		return false
+	}
+	_, ok := staticExts[strings.ToLower(path[dot:])]
+	return ok
 }
 
 var botMarkers = []string{
@@ -103,6 +121,7 @@ func Parse(line string, fallbackVhost string) (Record, bool) {
 		r.UA = ua
 	}
 	r.Bot = isBot(r.UA)
+	r.Static = IsStatic(r.Path)
 	return r, true
 }
 

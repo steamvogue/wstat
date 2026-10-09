@@ -1,6 +1,9 @@
 package logsrc
 
 import (
+	"bytes"
+	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +31,115 @@ func TestVhostFromFilename(t *testing.T) {
 		if got := vhostFromFilename(name); got != want {
 			t.Errorf("vhostFromFilename(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+func TestVhostFromRotatedNames(t *testing.T) {
+	cases := map[string]string{
+		"cms.local-access.log.12.gz":  "cms.local",
+		"access.log.1":                "default",
+		"access.log.2.gz":             "default",
+		"foo.com-ssl-access.log.3.gz": "foo.com",
+	}
+	for name, want := range cases {
+		got := vhostFromFilename(rotationSuffix.ReplaceAllString(name, ""))
+		if got != want {
+			t.Errorf("rotated %q -> vhost %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestDiscoverClassifiesReplay(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a-access.log", "1.2.3.4 - - [21/Oct/2025:14:26:43 +0200] \"GET / HTTP/1.1\" 200 1 \"-\" \"-\"\n")
+	write("a-access.log.1", "x\n")
+	if err := os.WriteFile(filepath.Join(dir, "b-access.log.2.gz"), gzipBytes(t, "y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srcs := Discover([]string{filepath.Join(dir, "a-access.log*"), filepath.Join(dir, "b-access.log*")})
+	byPath := map[string]Source{}
+	for _, s := range srcs {
+		byPath[filepath.Base(s.Path)] = s
+	}
+	if len(srcs) != 3 {
+		t.Fatalf("discover = %d sources, want 3: %+v", len(srcs), srcs)
+	}
+	if byPath["a-access.log"].Replay {
+		t.Error("plain .log must be live")
+	}
+	if !byPath["a-access.log.1"].Replay || !byPath["b-access.log.2.gz"].Replay {
+		t.Error("rotated files must be replay-only")
+	}
+	if byPath["a-access.log"].Vhost != "a" || byPath["b-access.log.2.gz"].Vhost != "b" {
+		t.Errorf("vhosts = %+v", byPath)
+	}
+}
+
+func gzipBytes(t *testing.T, content string) []byte {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestGzSeed(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "site-access.log.5.gz")
+	var content strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&content, "1.2.3.4 - - [21/Oct/2025:14:26:%02d +0200] \"GET /p%d HTTP/1.1\" 200 1 \"-\" \"-\"\n", i%60, i)
+	}
+	if err := os.WriteFile(p, gzipBytes(t, content.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines, _ := seedLines(p, 10)
+	if len(lines) != 10 {
+		t.Fatalf("gz seed = %d lines, want 10", len(lines))
+	}
+	if !strings.Contains(lines[9], "/p30") {
+		t.Errorf("gz seed newest = %q", lines[9])
+	}
+	if !strings.Contains(lines[0], "/p21") {
+		t.Errorf("gz seed oldest = %q, want /p21", lines[0])
+	}
+}
+
+func TestReplayOnlyDoesNotTail(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "site-access.log.1")
+	if err := os.WriteFile(p, []byte("old1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tr := Start([]string{p}, 10)
+	defer tr.Stop()
+	deadline := time.After(2 * time.Second)
+	select {
+	case l := <-tr.Ch:
+		if l.Text != "old1" || !l.Seeded {
+			t.Fatalf("unexpected first line %+v", l)
+		}
+	case <-deadline:
+		t.Fatal("replay source never delivered history")
+	}
+	// Append: replay-only sources must not deliver it.
+	f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.WriteString("new1\n")
+	f.Close()
+	quiet := time.After(700 * time.Millisecond)
+	select {
+	case l := <-tr.Ch:
+		t.Fatalf("replay source tailed: %+v", l)
+	case <-quiet:
 	}
 }
 

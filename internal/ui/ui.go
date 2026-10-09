@@ -20,38 +20,81 @@ const refreshInterval = 500 * time.Millisecond
 
 type tickMsg time.Time
 
+type theme struct {
+	accent, borderDim, label, dim, faint, chip, white string
+	status2, status3, status4, status5                string
+	palette                                           []string
+}
+
+var themes = []theme{
+	{ // amber (default)
+		accent: "#e8a33d", borderDim: "#4a4a5a", label: "#8a8a9a", dim: "#6a6a7a",
+		faint: "#454555", chip: "#e8a33d", white: "#ffffff",
+		status2: "#41c98e", status3: "#40c4ff", status4: "#f2c14e", status5: "#f05a5a",
+		palette: []string{"#e8a33d", "#41c98e", "#40c4ff", "#c792ea", "#f78c6c",
+			"#89ddff", "#ff5370", "#a9dc76", "#bb80b3", "#aed581"},
+	},
+	{ // ocean
+		accent: "#40c4ff", borderDim: "#3a4a5a", label: "#8aa0b4", dim: "#68808f",
+		faint: "#45555f", chip: "#40c4ff", white: "#e8f4ff",
+		status2: "#64e6a0", status3: "#7fd8ff", status4: "#ffd166", status5: "#ff7b7b",
+		palette: []string{"#40c4ff", "#64e6a0", "#e0aaff", "#ffd166", "#7fd8ff",
+			"#f49cbb", "#90f1ef", "#c0f0c0", "#bfa5ff", "#ffe0a3"},
+	},
+	{ // mono
+		accent: "#c8c8d8", borderDim: "#4a4a55", label: "#9a9aa8", dim: "#787885",
+		faint: "#55555f", chip: "#c8c8d8", white: "#ffffff",
+		status2: "#b0b0c0", status3: "#a0a0b5", status4: "#c8b890", status5: "#e8b8b8",
+		palette: []string{"#c8c8d8", "#b8b8c8", "#a8a8b8", "#9898a8", "#d8d8e8",
+			"#888898", "#e0e0f0", "#909098", "#b0b0b8", "#a0a0a8"},
+	},
+}
+
 var (
-	styBorderFocus = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#e8a33d"))
-	styBorderDim   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#4a4a5a"))
-
-	styTitle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e8a33d"))
-	styTitleDim   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#6a6a7a"))
-	styLogo       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e8a33d"))
-	styLabel      = lipgloss.NewStyle().Foreground(lipgloss.Color("#8a8a9a"))
-	styDim        = lipgloss.NewStyle().Foreground(lipgloss.Color("#6a6a7a"))
-	styFaint      = lipgloss.NewStyle().Foreground(lipgloss.Color("#454555"))
-	styAccent     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e8a33d"))
-	styChip       = lipgloss.NewStyle().Foreground(lipgloss.Color("#0d0d12")).Background(lipgloss.Color("#e8a33d"))
-	styStatusOK   = lipgloss.NewStyle().Foreground(lipgloss.Color("#41c98e"))
-	styStatus3xx  = lipgloss.NewStyle().Foreground(lipgloss.Color("#40c4ff"))
-	styStatus4xx  = lipgloss.NewStyle().Foreground(lipgloss.Color("#f2c14e"))
-	styStatus5xx  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f05a5a"))
-	stySel        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#3a3a4a"))
-	styStreamTime = lipgloss.NewStyle().Foreground(lipgloss.Color("#8a8a9a"))
-
-	hostPalette = []lipgloss.Style{
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#e8a33d")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#41c98e")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#40c4ff")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#c792ea")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#f78c6c")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#89ddff")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5370")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#a9dc76")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#bb80b3")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#aed581")),
-	}
+	styBorderFocus lipgloss.Style
+	styBorderDim   lipgloss.Style
+	styTitle       lipgloss.Style
+	styTitleDim    lipgloss.Style
+	styLogo        lipgloss.Style
+	styLabel       lipgloss.Style
+	styDim         lipgloss.Style
+	styFaint       lipgloss.Style
+	styAccent      lipgloss.Style
+	styChip        lipgloss.Style
+	styStatusOK    lipgloss.Style
+	styStatus3xx   lipgloss.Style
+	styStatus4xx   lipgloss.Style
+	styStatus5xx   lipgloss.Style
+	stySel         lipgloss.Style
+	styStreamTime  lipgloss.Style
+	hostPalette    []lipgloss.Style
 )
+
+func applyTheme(i int) {
+	th := themes[i%len(themes)]
+	styBorderFocus = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.accent))
+	styBorderDim = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.borderDim))
+	styTitle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.accent))
+	styTitleDim = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.dim))
+	styLogo = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.accent))
+	styLabel = lipgloss.NewStyle().Foreground(lipgloss.Color(th.label))
+	styDim = lipgloss.NewStyle().Foreground(lipgloss.Color(th.dim))
+	styFaint = lipgloss.NewStyle().Foreground(lipgloss.Color(th.faint))
+	styAccent = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.accent))
+	styChip = lipgloss.NewStyle().Foreground(lipgloss.Color("#0d0d12")).Background(lipgloss.Color(th.chip))
+	styStatusOK = lipgloss.NewStyle().Foreground(lipgloss.Color(th.status2))
+	styStatus3xx = lipgloss.NewStyle().Foreground(lipgloss.Color(th.status3))
+	styStatus4xx = lipgloss.NewStyle().Foreground(lipgloss.Color(th.status4))
+	styStatus5xx = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.status5))
+	stySel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.white)).Background(lipgloss.Color("#3a3a4a"))
+	styStreamTime = lipgloss.NewStyle().Foreground(lipgloss.Color(th.label))
+	hostPalette = make([]lipgloss.Style, len(th.palette))
+	for i, c := range th.palette {
+		hostPalette[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c))
+	}
+}
+
+func init() { applyTheme(0) }
 
 func vhostStyle(v string) lipgloss.Style {
 	var h uint32 = 2166136261
@@ -85,8 +128,10 @@ type Model struct {
 	focus      int // 0 hosts, 1 urls, 2 clients, 3 stream
 	zoom       bool
 	sel        [4]int
-	hostSel    map[string]bool
-	status     store.StatusMask
+	filters    store.Filters
+	sorts      [3]store.SortKey
+	frozen     bool
+	theme      int
 	search     string
 	searchMode bool
 
@@ -100,7 +145,7 @@ type Model struct {
 }
 
 func New(st *store.Store, tailer *logsrc.Tailer) Model {
-	return Model{st: st, tailer: tailer, hostSel: map[string]bool{}, started: time.Now()}
+	return Model{st: st, tailer: tailer, started: time.Now()}
 }
 
 func (m Model) Init() tea.Cmd { return tick() }
@@ -110,11 +155,11 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) refresh() {
-	// Keep the stream pinned to the bottom unless the user scrolled up.
-	atBottom := len(m.stream) == 0 || m.sel[3] >= len(m.stream)-1
+	// Keep the stream pinned to the bottom unless frozen or scrolled up.
+	atBottom := !m.frozen && (len(m.stream) == 0 || m.sel[3] >= len(m.stream)-1)
 
 	m.hosts, m.urls, m.clients, m.stream, m.tot, m.bad =
-		m.st.Snapshot(m.hostSel, m.status, 200)
+		m.st.Snapshot(m.filters, m.sorts, 200)
 
 	if atBottom && len(m.stream) > 0 {
 		m.sel[3] = len(m.stream) - 1
@@ -180,6 +225,21 @@ func (m *Model) searchKey(msg tea.KeyPressMsg) {
 	m.sel = [4]int{}
 }
 
+func toggle(set map[string]bool, v string) map[string]bool {
+	if set == nil {
+		set = map[string]bool{}
+	}
+	if set[v] {
+		delete(set, v)
+	} else {
+		set[v] = true
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
 func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch msg.String() {
 	case "ctrl+c", "q":
@@ -217,30 +277,76 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "/":
 		m.searchMode = true
 		return nil, true
-	case "h":
+	case "h": // toggle host filter from selected hosts row
 		if m.focus == 0 {
-			rows := m.filteredRows(0)
-			if i := clamp(m.sel[0], 0, len(rows)-1); len(rows) > 0 {
-				v := rows[i].Key
-				if m.hostSel[v] {
-					delete(m.hostSel, v)
-				} else {
-					m.hostSel[v] = true
-				}
+			if rows := m.filteredRows(0); len(rows) > 0 {
+				i := clamp(m.sel[0], 0, len(rows)-1)
+				m.filters.Hosts = toggle(m.filters.Hosts, rows[i].Key)
 			}
 		}
-	case "x":
-		switch m.status {
-		case 0:
-			m.status = store.MaskErr
-		case store.MaskErr:
-			m.status = store.MaskOK
-		default:
-			m.status = 0
+	case "c": // toggle client filter from selected clients row
+		if m.focus == 2 {
+			if rows := m.filteredRows(2); len(rows) > 0 {
+				i := clamp(m.sel[2], 0, len(rows)-1)
+				m.filters.Clients = toggle(m.filters.Clients, rows[i].Key)
+			}
 		}
-	case "X":
-		m.hostSel = map[string]bool{}
-		m.status = 0
+	case "p": // toggle path filter from selected urls row
+		if m.focus == 1 {
+			if rows := m.filteredRows(1); len(rows) > 0 {
+				i := clamp(m.sel[1], 0, len(rows)-1)
+				m.filters.Paths = toggle(m.filters.Paths, rows[i].Path)
+			}
+		}
+	case "x": // cycle status filter
+		switch m.filters.Mask {
+		case 0:
+			m.filters.Mask = store.MaskErr
+		case store.MaskErr:
+			m.filters.Mask = store.MaskOK
+		default:
+			m.filters.Mask = 0
+		}
+	case "m": // cycle method filter
+		switch m.filters.Method {
+		case "":
+			m.filters.Method = "GET"
+		case "GET":
+			m.filters.Method = "POST"
+		case "POST":
+			m.filters.Method = "HEAD"
+		default:
+			m.filters.Method = ""
+		}
+	case "b": // cycle bots filter
+		switch m.filters.Bots {
+		case 0:
+			m.filters.Bots = +1
+		case +1:
+			m.filters.Bots = -1
+		default:
+			m.filters.Bots = 0
+		}
+	case "t": // cycle static-asset filter
+		switch m.filters.Static {
+		case 0:
+			m.filters.Static = -1
+		default:
+			m.filters.Static = 0
+		}
+	case "s": // cycle sort of focused table panel
+		if m.focus < 3 {
+			m.sorts[m.focus] = (m.sorts[m.focus] + 1) % 4
+		}
+	case "f": // freeze stream auto-follow
+		m.frozen = !m.frozen
+		return nil, true
+	case "T": // cycle theme
+		m.theme = (m.theme + 1) % len(themes)
+		applyTheme(m.theme)
+		return nil, true
+	case "X": // clear every filter
+		m.filters = store.Filters{}
 		m.search = ""
 		m.sel = [4]int{}
 	default:
@@ -256,13 +362,12 @@ func (m *Model) focusRows() []store.Row {
 }
 
 func (m *Model) filteredRows(panel int) []store.Row {
-	q := strings.ToLower(m.search)
-	if q == "" {
+	if m.search == "" {
 		return m.rawRows(panel)
 	}
 	var out []store.Row
 	for _, r := range m.rawRows(panel) {
-		if strings.Contains(strings.ToLower(r.Key+" "+r.Path+" "+r.UA), q) {
+		if fuzzy(m.search, r.Key+" "+r.Path+" "+r.UA) {
 			out = append(out, r)
 		}
 	}
@@ -279,6 +384,24 @@ func (m *Model) rawRows(panel int) []store.Row {
 		return m.clients
 	}
 	return nil
+}
+
+// fuzzy reports whether needle is a case-insensitive subsequence of hay.
+func fuzzy(needle, hay string) bool {
+	ni := 0
+	for i := 0; i < len(hay) && ni < len(needle); i++ {
+		c, n := hay[i], needle[ni]
+		if 'A' <= c && c <= 'Z' {
+			c += 32
+		}
+		if 'A' <= n && n <= 'Z' {
+			n += 32
+		}
+		if c == n {
+			ni++
+		}
+	}
+	return ni == len(needle)
 }
 
 func (m Model) View() tea.View {
@@ -334,28 +457,80 @@ func (m Model) header() string {
 
 func (m Model) chips() []string {
 	var chips []string
-	if len(m.hostSel) > 0 {
-		var vs []string
-		for v := range m.hostSel {
-			vs = append(vs, v)
-		}
-		chips = append(chips, "host:"+strings.Join(vs, ","))
+	if names := m.filters.Hosts; len(names) > 0 {
+		chips = append(chips, "host:"+strings.Join(sortedKeys(names), ","))
 	}
-	switch m.status {
+	if names := m.filters.Clients; len(names) > 0 {
+		chips = append(chips, "ip:"+strings.Join(sortedKeys(names), ","))
+	}
+	if names := m.filters.Paths; len(names) > 0 {
+		chips = append(chips, "path:"+strconvLen(names))
+	}
+	switch m.filters.Mask {
 	case store.MaskErr:
 		chips = append(chips, "4xx-5xx")
 	case store.MaskOK:
 		chips = append(chips, "2xx-3xx")
 	}
+	if m.filters.Method != "" {
+		chips = append(chips, m.filters.Method)
+	}
+	switch m.filters.Bots {
+	case +1:
+		chips = append(chips, "bots")
+	case -1:
+		chips = append(chips, "humans")
+	}
+	if m.filters.Static == -1 {
+		chips = append(chips, "no-static")
+	}
 	if m.search != "" {
 		chips = append(chips, "/"+m.search)
+	}
+	if m.frozen {
+		chips = append(chips, "frozen")
 	}
 	return chips
 }
 
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	// tiny insertion sort; filter sets are small
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j] < out[j-1]; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
+}
+
+func strconvLen(set map[string]bool) string {
+	if len(set) == 1 {
+		for k := range set {
+			return k
+		}
+	}
+	return fmt.Sprintf("%d", len(set))
+}
+
 func (m Model) footer() string {
-	keys := styLabel.Render("q quit · tab 1-4 focus · ⏎ zoom · j/k g/G move · / search · h host · x status · X clear")
-	right := styLabel.Render(fmt.Sprintf("src:%d", len(m.tailer.Sources())))
+	keys := styLabel.Render("q quit · tab 1-4 focus · ⏎ zoom · / find · h host · c ip · p path · x status · m method · b bots · t static · s sort · f freeze · T theme · X clear")
+	live, replay := 0, 0
+	for _, s := range m.tailer.Sources() {
+		if s.Replay {
+			replay++
+		} else {
+			live++
+		}
+	}
+	src := fmt.Sprintf("live:%d", live)
+	if replay > 0 {
+		src += fmt.Sprintf(" replay:%d", replay)
+	}
+	right := styLabel.Render(src)
 	if m.bad > 0 {
 		right += styDim.Render(" · ") + styStatus4xx.Render(fmt.Sprintf("bad:%d", m.bad))
 	}
@@ -369,8 +544,8 @@ func (m Model) footer() string {
 }
 
 func (m Model) searchLine() string {
-	return styLabel.Render("search: ") + m.search + styDim.Render("▏") +
-		styFaint.Render("  (enter apply · esc cancel)")
+	return styLabel.Render("find: ") + m.search + styDim.Render("▏") +
+		styFaint.Render("  (fuzzy · enter apply · esc cancel)")
 }
 
 func (m Model) body() string {
@@ -396,6 +571,33 @@ func (m Model) body() string {
 	return strings.Join([]string{top, mid, bottom}, "\n")
 }
 
+func (m Model) panelTitle(panel int) string {
+	var title, extra string
+	switch panel {
+	case 0:
+		title = " HOSTS "
+		if len(m.filters.Hosts) > 0 {
+			extra = " ●" + strconvLen(m.filters.Hosts)
+		}
+	case 1:
+		title = " TOP URLS "
+		if len(m.filters.Paths) > 0 {
+			extra = " ●" + strconvLen(m.filters.Paths)
+		}
+	case 2:
+		title = " CLIENTS "
+		if len(m.filters.Clients) > 0 {
+			extra = " ●" + strconvLen(m.filters.Clients)
+		}
+	case 3:
+		title = " LIVE REQUESTS "
+	}
+	if panel < 3 && m.sorts[panel] != store.SortRate {
+		extra += " ·" + m.sorts[panel].String()
+	}
+	return title + extra + " "
+}
+
 func (m Model) panel(panel int, w, h int) string {
 	border := styBorderDim
 	if panel == m.focus {
@@ -410,20 +612,15 @@ func (m Model) panel(panel int, w, h int) string {
 		viewH = 1
 	}
 
-	var title string
 	var lines []string
 	switch panel {
 	case 0:
-		title = " HOSTS "
 		lines = m.hostLines(contentW, viewH)
 	case 1:
-		title = " TOP URLS "
 		lines = m.urlLines(contentW, viewH)
 	case 2:
-		title = " CLIENTS "
 		lines = m.clientLines(contentW, viewH)
 	case 3:
-		title = " LIVE REQUESTS "
 		lines = m.streamLines(contentW, viewH)
 	}
 	if len(lines) == 0 && panel != 3 {
@@ -431,7 +628,12 @@ func (m Model) panel(panel int, w, h int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(m.titleLine(title, contentW, panel == m.focus))
+	sty := styTitleDim
+	if panel == m.focus {
+		sty = styTitle
+	}
+	title := m.panelTitle(panel)
+	b.WriteString(sty.Render(title) + styFaint.Render(strings.Repeat("─", max(0, contentW-lipgloss.Width(sty.Render(title))))))
 	mw := lipgloss.NewStyle().MaxWidth(contentW)
 	for _, l := range lines {
 		b.WriteByte('\n')
@@ -440,20 +642,12 @@ func (m Model) panel(panel int, w, h int) string {
 	return border.Width(contentW).Height(h - 2).Render(b.String())
 }
 
-func (m Model) titleLine(title string, w int, focused bool) string {
-	sty := styTitleDim
-	if focused {
-		sty = styTitle
-	}
-	return sty.Render(title) + styFaint.Render(strings.Repeat("─", max(0, w-lipgloss.Width(sty.Render(title)))))
-}
-
 func (m *Model) hostLines(w, viewH int) []string {
 	rows := m.filteredRows(0)
 	if len(rows) == 0 {
 		return nil
 	}
-	filtered := len(m.hostSel) > 0
+	filtered := len(m.filters.Hosts) > 0
 	start := windowStart(m.sel[0], len(rows), viewH)
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
@@ -462,9 +656,9 @@ func (m *Model) hostLines(w, viewH int) []string {
 		vs := vhostStyle(r.Key)
 		name := r.Key
 		if filtered {
-			if m.hostSel[r.Key] {
+			if m.filters.Hosts[r.Key] {
 				mark = "●"
-				name = stySel.Render(" " + r.Key + " ") // selection marking
+				name = stySel.Render(" " + r.Key + " ")
 			} else {
 				name = styDim.Render(r.Key)
 			}
@@ -491,17 +685,26 @@ func (m *Model) urlLines(w, viewH int) []string {
 	if len(rows) == 0 {
 		return nil
 	}
+	pathFiltered := len(m.filters.Paths) > 0
 	start := windowStart(m.sel[1], len(rows), viewH)
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
 		r := rows[i]
-		pathW := w - 23
+		vhostW := min(pathW(w)/3, 14)
+		pathW := w - 23 - vhostW
 		if pathW < 8 {
 			pathW = 8
 		}
-		row := styDim.Render(trunc(r.Method, 5)) + " " +
-			padStyled(vhostStyle(r.Vhost), r.Vhost+":", min(pathW/3, 14)) +
-			pad(styFaint, trunc(r.Path, pathW-min(pathW/3, 14)), pathW-min(pathW/3, 14)) +
+		mark := " "
+		if pathFiltered {
+			if m.filters.Paths[r.Path] {
+				mark = "●"
+			}
+			mark = styAccent.Render(mark)
+		}
+		row := mark + styDim.Render(trunc(r.Method, 5)) + " " +
+			padStyled(vhostStyle(r.Vhost), trunc(r.Vhost+":", vhostW), vhostW) +
+			pad(styFaint, trunc(r.Path, pathW), pathW) +
 			rightAligned(styLabel.Render(humanInt(r.Hits)), 8) +
 			rightAligned(styLabel.Render(humanRate(r.Rate)), 7)
 		if i == m.sel[1] && m.focus == 1 {
@@ -512,11 +715,14 @@ func (m *Model) urlLines(w, viewH int) []string {
 	return out
 }
 
+func pathW(w int) int { return w - 23 }
+
 func (m *Model) clientLines(w, viewH int) []string {
 	rows := m.filteredRows(2)
 	if len(rows) == 0 {
 		return nil
 	}
+	ipFiltered := len(m.filters.Clients) > 0
 	start := windowStart(m.sel[2], len(rows), viewH)
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
@@ -525,11 +731,18 @@ func (m *Model) clientLines(w, viewH int) []string {
 		if r.Bot {
 			bot = styStatus4xx.Render("b")
 		}
-		uaW := w - 42
+		uaW := w - 44
 		if uaW < 4 {
 			uaW = 4
 		}
-		row := bot + " " + padStyled(styLabel, r.Key, 16) +
+		mark := " "
+		if ipFiltered {
+			if m.filters.Clients[r.Key] {
+				mark = "●"
+			}
+			mark = styAccent.Render(mark)
+		}
+		row := bot + " " + mark + padStyled(styLabel, r.Key, 16) +
 			rightAligned(styLabel.Render(humanInt(r.Hits)), 8) +
 			rightAligned(styLabel.Render(humanRate(r.Rate)), 7) +
 			rightAligned(errStyle(r.Errs, r.Hits), 6) + " " +
@@ -543,16 +756,15 @@ func (m *Model) clientLines(w, viewH int) []string {
 }
 
 func (m *Model) streamLines(w, viewH int) []string {
-	q := strings.ToLower(m.search)
 	var rows []parser.Record
 	for _, r := range m.stream {
-		if q != "" && !strings.Contains(strings.ToLower(r.Vhost+" "+r.Path+" "+r.IP), q) {
+		if m.search != "" && !fuzzy(m.search, r.Vhost+" "+r.Path+" "+r.IP+" "+r.Method) {
 			continue
 		}
 		rows = append(rows, r)
 	}
 	if len(rows) == 0 {
-		if q != "" {
+		if m.search != "" {
 			return []string{styFaint.Render("no matches")}
 		}
 		return nil
@@ -561,7 +773,7 @@ func (m *Model) streamLines(w, viewH int) []string {
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
 		r := rows[i]
-		pathW := w - 60
+		pathW := w - 62
 		if pathW < 6 {
 			pathW = 6
 		}

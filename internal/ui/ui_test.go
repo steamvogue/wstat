@@ -59,7 +59,7 @@ func TestFilterInteractions(t *testing.T) {
 
 	// Select dev.local in hosts (sorted by rate; find it by toggling each row).
 	// Simpler: set filter directly then verify cross-filter semantics.
-	m.hostSel = map[string]bool{"dev.local": true}
+	m.filters.Hosts = map[string]bool{"dev.local": true}
 	m = drive(m, tickMsg(time.Now()))
 	out := m.render()
 	if strings.Contains(out, "cms.local") == false {
@@ -68,15 +68,15 @@ func TestFilterInteractions(t *testing.T) {
 	}
 
 	// Status filter to errors only.
-	m.status = store.MaskErr
+	m.filters.Mask = store.MaskErr
 	m = drive(m, tickMsg(time.Now()))
-	if !m.status.Allows(500) || m.status.Allows(200) {
+	if !m.filters.Mask.Allows(500) || m.filters.Mask.Allows(200) {
 		t.Error("status mask broken")
 	}
 
 	// Clear with X.
 	m = drive(m, tea.KeyPressMsg{Text: "X"}, tickMsg(time.Now()))
-	if len(m.hostSel) != 0 || m.status != 0 {
+	if m.filters.Any() {
 		t.Error("X must clear all filters")
 	}
 }
@@ -111,5 +111,72 @@ func TestZoomToggle(t *testing.T) {
 	out := m.render()
 	if strings.Contains(out, "HOSTS") == false && strings.Contains(out, "TOP URLS") == false {
 		t.Error("zoom must render the focused panel")
+	}
+}
+
+func TestFilterKeyCycles(t *testing.T) {
+	m := mkModel(t)
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, tickMsg(time.Now()))
+
+	m = drive(m, tea.KeyPressMsg{Text: "x"})
+	if m.filters.Mask != store.MaskErr {
+		t.Errorf("x: mask = %v, want MaskErr", m.filters.Mask)
+	}
+	m = drive(m, tea.KeyPressMsg{Text: "m"})
+	if m.filters.Method != "GET" {
+		t.Errorf("m: method = %q, want GET", m.filters.Method)
+	}
+	m = drive(m, tea.KeyPressMsg{Text: "b"})
+	if m.filters.Bots != +1 {
+		t.Errorf("b: bots = %d, want +1", m.filters.Bots)
+	}
+	m = drive(m, tea.KeyPressMsg{Text: "t"})
+	if m.filters.Static != -1 {
+		t.Errorf("t: static = %d, want -1", m.filters.Static)
+	}
+	chips := strings.Join(m.chips(), " ")
+	for _, want := range []string{"4xx-5xx", "GET", "bots", "no-static"} {
+		if !strings.Contains(chips, want) {
+			t.Errorf("chips missing %q: %v", want, chips)
+		}
+	}
+	// X clears everything at once.
+	m = drive(m, tea.KeyPressMsg{Text: "X"})
+	if m.filters.Any() {
+		t.Errorf("X must clear all filters, left %+v", m.filters)
+	}
+}
+
+func TestSortAndFreeze(t *testing.T) {
+	m := mkModel(t)
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, tickMsg(time.Now()))
+	m = drive(m, tea.KeyPressMsg{Text: "s"})
+	if m.sorts[0] != store.SortHits {
+		t.Errorf("s: sorts[0] = %v, want hits", m.sorts[0])
+	}
+	out := m.render()
+	if !strings.Contains(out, "hits") {
+		t.Error("sort marker missing from title")
+	}
+	m = drive(m, tea.KeyPressMsg{Text: "f"})
+	if !m.frozen {
+		t.Error("f must freeze the stream")
+	}
+	m = drive(m, tea.KeyPressMsg{Text: "T"})
+	if m.theme != 1 {
+		t.Errorf("T: theme = %d, want 1", m.theme)
+	}
+	m = drive(m, tea.KeyPressMsg{Text: "T"}, tea.KeyPressMsg{Text: "T"})
+	if m.theme != 0 {
+		t.Errorf("theme cycle broken: %d", m.theme)
+	}
+}
+
+func TestFuzzySearch(t *testing.T) {
+	if !fuzzy("pl", "/panel/login") || !fuzzy("PL", "/panel/login") {
+		t.Error("fuzzy subsequence match broken")
+	}
+	if fuzzy("xyz", "/panel/login") {
+		t.Error("fuzzy must not match unrelated needle")
 	}
 }

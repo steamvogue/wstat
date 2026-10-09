@@ -51,14 +51,60 @@ func classIdx(status int) (int, bool) {
 	return c - 2, true
 }
 
+// SortKey selects the primary sort of a panel's rows.
+type SortKey uint8
+
+const (
+	SortRate SortKey = iota
+	SortHits
+	SortErrs
+	SortBytes
+)
+
+func (k SortKey) String() string {
+	switch k {
+	case SortHits:
+		return "hits"
+	case SortErrs:
+		return "errs"
+	case SortBytes:
+		return "bytes"
+	default:
+		return "rate"
+	}
+}
+
+// Filters is the active cross-filter state. Semantics: a filter on
+// dimension D scopes every panel except D's own panel (drill-down), which
+// instead marks the selection. Host/status/bot/static filters are exact
+// everywhere (per-agg counters exist); method is exact on URLs and stream;
+// path and client are exact on their own panel and the stream; combined
+// bot/static with status is approximate (independent counters).
+type Filters struct {
+	Hosts   map[string]bool // selected vhosts
+	Clients map[string]bool // selected client IPs
+	Paths   map[string]bool // selected URL paths
+	Mask    StatusMask
+	Method  string // "" = all
+	Bots    int8   // 0 all, +1 bots only, -1 humans only
+	Static  int8   // 0 all, -1 hide static assets
+}
+
+func (f Filters) Any() bool {
+	return len(f.Hosts) > 0 || len(f.Clients) > 0 || len(f.Paths) > 0 ||
+		f.Mask != 0 || f.Method != "" || f.Bots != 0 || f.Static != 0
+}
+
 type agg struct {
-	hits  int64
-	bytes int64
-	errs  int64 // 4xx+5xx
-	class [4]int64
-	cur   int64 // hits since last flush
-	rate  float64
-	last  time.Time // wall clock of last hit
+	hits   int64
+	bytes  int64
+	errs   int64 // 4xx+5xx
+	class  [4]int64
+	bots   int64
+	static int64
+	cur    int64 // live hits since last flush (seeded lines excluded)
+	rate   float64
+	last   time.Time
 }
 
 func (a *agg) add(r parser.Record, now time.Time, live bool) {
@@ -74,18 +120,36 @@ func (a *agg) add(r parser.Record, now time.Time, live bool) {
 	if r.Status >= 400 {
 		a.errs++
 	}
+	if r.Bot {
+		a.bots++
+	}
+	if r.Static {
+		a.static++
+	}
 }
 
-// filtered returns hit count under the active status mask.
-func (a *agg) filtered(mask StatusMask) int64 {
-	if mask == 0 {
-		return a.hits
-	}
-	n := int64(0)
-	for i := 0; i < 4; i++ {
-		if mask&(1<<i) != 0 {
-			n += a.class[i]
+// filtered returns the hit count under the active filters.
+func (a *agg) filtered(f Filters) int64 {
+	n := a.hits
+	if f.Mask != 0 {
+		n = int64(0)
+		for i := 0; i < 4; i++ {
+			if f.Mask&(1<<i) != 0 {
+				n += a.class[i]
+			}
 		}
+	}
+	switch f.Bots {
+	case +1:
+		n = a.bots
+	case -1:
+		n = a.hits - a.bots
+	}
+	if f.Static == -1 {
+		n -= a.static
+	}
+	if n < 0 {
+		n = 0
 	}
 	return n
 }
@@ -125,8 +189,8 @@ type Store struct {
 	streamHead     int
 	tot            totals
 	bad            int64
-	urlOverflow    int64 // unique urls beyond maxKeys (not tracked)
-	clientOverflow int64 // unique clients beyond maxKeys (not tracked)
+	urlOverflow    int64
+	clientOverflow int64
 	lastFlush      time.Time
 }
 
@@ -291,13 +355,13 @@ type Row struct {
 	UA     string
 	Bot    bool
 	Rate   float64
-	Hits   int64
+	Hits   int64 // hits under the active filters
 	Bytes  int64
 	Errs   int64
 	Last   time.Time
 }
 
-// Totals is the global header summary.
+// Totals is the global header summary (never filtered).
 type Totals struct {
 	Reqs, Bytes int64
 	Class       [4]int64
@@ -306,45 +370,56 @@ type Totals struct {
 	ByteRate    float64
 }
 
-// Snapshot returns a display-ready copy of the state. Hosts is the active
-// host filter (nil/empty = all); it scopes URLs, clients and stream but not
-// the hosts panel itself. Mask scopes status classes across all panels.
-func (s *Store) Snapshot(hosts map[string]bool, mask StatusMask, topN int) (hostsRows []Row, urlRows []Row, clientRows []Row, stream []parser.Record, tot Totals, bad int64) {
+// Snapshot returns a display-ready copy of the state under the given
+// filters. sorts holds the sort keys for hosts, urls and clients.
+func (s *Store) Snapshot(f Filters, sorts [3]SortKey, topN int) (hostsRows []Row, urlRows []Row, clientRows []Row, stream []parser.Record, tot Totals, bad int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	s.maybeFlushLocked(now)
 
 	for k, a := range s.hosts {
-		hostsRows = append(hostsRows, Row{Key: k, Rate: a.rate, Hits: a.filtered(mask), Bytes: a.bytes, Errs: a.errs, Last: a.last})
+		hostsRows = append(hostsRows, Row{
+			Key: k, Rate: a.rate, Hits: a.filtered(f),
+			Bytes: a.bytes, Errs: a.errs, Last: a.last,
+		})
 	}
-	sortRows(hostsRows, mask)
+	sortRows(hostsRows, sorts[0])
 	if len(hostsRows) > topN {
 		hostsRows = hostsRows[:topN]
 	}
 
 	for _, u := range s.urls {
-		if len(hosts) > 0 && !hosts[u.vhost] {
+		// Non-self filters that are exact for this dimension.
+		if len(f.Hosts) > 0 && !f.Hosts[u.vhost] {
+			continue
+		}
+		if f.Method != "" && u.method != f.Method {
+			continue
+		}
+		// A URL row is either fully static or not (single path), so the
+		// static filter is exact at row level.
+		if f.Static == -1 && u.static > 0 {
 			continue
 		}
 		urlRows = append(urlRows, Row{
-			Key: u.vhost + " " + u.method + " " + u.path, Vhost: u.vhost,
-			Method: u.method, Path: u.path, Rate: u.rate,
-			Hits: u.filtered(mask), Bytes: u.bytes, Errs: u.errs, Last: u.last,
+			Key:   u.vhost + " " + u.method + " " + u.path,
+			Vhost: u.vhost, Method: u.method, Path: u.path,
+			Rate: u.rate, Hits: u.filtered(f), Bytes: u.bytes, Errs: u.errs, Last: u.last,
 		})
 	}
-	sortRows(urlRows, mask)
+	sortRows(urlRows, sorts[1])
 	if len(urlRows) > topN {
 		urlRows = urlRows[:topN]
 	}
 
 	for k, c := range s.clients {
 		hits := int64(0)
-		if len(hosts) > 0 {
+		if len(f.Hosts) > 0 {
 			// Host filter is exact via per-vhost counters; combining it with
-			// a status mask is approximate (intersection not tracked).
+			// other counters is approximate (intersection not tracked).
 			for h, n := range c.vhosts {
-				if hosts[h] {
+				if f.Hosts[h] {
 					hits += n
 				}
 			}
@@ -352,40 +427,79 @@ func (s *Store) Snapshot(hosts map[string]bool, mask StatusMask, topN int) (host
 				continue
 			}
 		} else {
-			hits = c.filtered(mask)
+			hits = c.filtered(f)
 		}
 		clientRows = append(clientRows, Row{
 			Key: k, Rate: c.rate, Hits: hits, Bytes: c.bytes, Errs: c.errs,
 			UA: c.ua, Bot: c.bot, Last: c.last,
 		})
 	}
-	sortRows(clientRows, mask)
+	sortRows(clientRows, sorts[2])
 	if len(clientRows) > topN {
 		clientRows = clientRows[:topN]
 	}
 
-	stream = s.snapshotStreamLocked(hosts, mask, 100)
-	tot = Totals{Reqs: s.tot.reqs, Bytes: s.tot.bytes, Class: s.tot.class, Bots: s.tot.bots, Rate: s.tot.rate, ByteRate: s.tot.byteRate}
+	stream = s.snapshotStreamLocked(f, 100)
+	tot = Totals{
+		Reqs: s.tot.reqs, Bytes: s.tot.bytes, Class: s.tot.class,
+		Bots: s.tot.bots, Rate: s.tot.rate, ByteRate: s.tot.byteRate,
+	}
 	return hostsRows, urlRows, clientRows, stream, tot, s.bad
 }
 
-func sortRows(rows []Row, mask StatusMask) {
-	byRate := mask == 0
+func sortRows(rows []Row, key SortKey) {
 	sort.Slice(rows, func(i, j int) bool {
-		if byRate {
-			if rows[i].Rate != rows[j].Rate {
-				return rows[i].Rate > rows[j].Rate
-			}
-			return rows[i].Hits > rows[j].Hits
+		a, b := rows[i], rows[j]
+		var av, bv int64
+		switch key {
+		case SortHits:
+			av, bv = a.Hits, b.Hits
+		case SortErrs:
+			av, bv = a.Errs, b.Errs
+		case SortBytes:
+			av, bv = a.Bytes, b.Bytes
 		}
-		if rows[i].Hits != rows[j].Hits {
-			return rows[i].Hits > rows[j].Hits
+		if key != SortRate && av != bv {
+			return av > bv
 		}
-		return rows[i].Rate > rows[j].Rate
+		if a.Rate != b.Rate {
+			return a.Rate > b.Rate
+		}
+		return a.Hits > b.Hits
 	})
 }
 
-func (s *Store) snapshotStreamLocked(hosts map[string]bool, mask StatusMask, max int) []parser.Record {
+// StreamMatch reports whether a raw record passes every active filter
+// exactly (the stream carries full records, so all dimensions are exact).
+func StreamMatch(r parser.Record, f Filters) bool {
+	if len(f.Hosts) > 0 && !f.Hosts[r.Vhost] {
+		return false
+	}
+	if len(f.Clients) > 0 && !f.Clients[r.IP] {
+		return false
+	}
+	if len(f.Paths) > 0 && !f.Paths[r.Path] {
+		return false
+	}
+	if !f.Mask.Allows(r.Status) {
+		return false
+	}
+	if f.Method != "" && r.Method != f.Method {
+		return false
+	}
+	if f.Bots == +1 && !r.Bot {
+		return false
+	}
+	if f.Bots == -1 && r.Bot {
+		return false
+	}
+	if f.Static == -1 && r.Static {
+		return false
+	}
+	return true
+}
+
+func (s *Store) snapshotStreamLocked(f Filters, max int) []parser.Record {
 	out := make([]parser.Record, 0, 64)
 	for i := 1; i <= s.streamLen && len(out) < max; i++ {
 		var r parser.Record
@@ -394,10 +508,7 @@ func (s *Store) snapshotStreamLocked(hosts map[string]bool, mask StatusMask, max
 		} else {
 			r = s.stream[(s.streamHead-i+streamCap)%streamCap]
 		}
-		if len(hosts) > 0 && !hosts[r.Vhost] {
-			continue
-		}
-		if !mask.Allows(r.Status) {
+		if !StreamMatch(r, f) {
 			continue
 		}
 		out = append(out, r)

@@ -3,6 +3,8 @@
 package logsrc
 
 import (
+	"bufio"
+	"compress/gzip"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,18 +19,25 @@ import (
 
 // Source is one tailed access log file.
 type Source struct {
-	Path  string
-	Vhost string // fallback vhost derived from the filename
+	Path   string
+	Vhost  string // fallback vhost derived from the filename
+	Replay bool   // rotated/compressed history: replay once, never tail
 }
 
-// DefaultGlobs covers common Apache/nginx layouts (Debian, RHEL, nginx/Forge).
+// DefaultGlobs covers common Apache/nginx layouts (Debian, RHEL, nginx/Forge)
+// plus their rotated variants (replayed as history).
 var DefaultGlobs = []string{
 	"/var/log/apache2/*access*.log",
+	"/var/log/apache2/*access*.log.[0-9]*",
 	"/var/log/httpd/*access*log*",
 	"/var/log/nginx/*access*.log",
+	"/var/log/nginx/*access*.log.[0-9]*",
 }
 
 var errorLogRe = regexp.MustCompile(`error`)
+
+// rotationSuffix strips logrotate suffixes: ".log.12.gz" -> ".log".
+var rotationSuffix = regexp.MustCompile(`(\.[0-9]+)?(\.gz)?$`)
 
 var vhostPatterns = []*regexp.Regexp{
 	// <vhost>-access.log / <vhost>-ssl-access.log / <vhost>_access.log
@@ -46,7 +55,9 @@ type RawLine struct {
 }
 
 // Discover finds readable, non-empty access-log files matching the globs
-// (DefaultGlobs when nil). Error logs are skipped. Sorted by path.
+// (DefaultGlobs when nil). Error logs are skipped. Files that are not plain
+// "*.log" (e.g. ".log.1", ".log.2.gz") are classified as Replay. Sorted by
+// path.
 func Discover(globs []string) []Source {
 	if len(globs) == 0 {
 		globs = DefaultGlobs
@@ -71,7 +82,12 @@ func Discover(globs []string) []Source {
 			if err != nil || fi.IsDir() || fi.Size() == 0 {
 				continue
 			}
-			out = append(out, Source{Path: p, Vhost: vhostFromFilename(base)})
+			live := strings.HasSuffix(base, ".log")
+			out = append(out, Source{
+				Path:   p,
+				Vhost:  vhostFromFilename(rotationSuffix.ReplaceAllString(base, "")),
+				Replay: !live,
+			})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
@@ -93,7 +109,8 @@ func vhostFromFilename(base string) string {
 
 // seedLines reads up to the last maxLines complete lines of the file and
 // returns the byte offset where live tailing must resume so that no line is
-// lost or double-counted.
+// lost or double-counted. Gzip files are fully decompressed (bounded) and
+// only their tail is kept; their offset is irrelevant for replay sources.
 func seedLines(path string, maxLines int) ([]string, int64) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -107,6 +124,10 @@ func seedLines(path string, maxLines int) ([]string, int64) {
 	size := fi.Size()
 	if maxLines <= 0 {
 		return nil, size
+	}
+	var head [2]byte
+	if _, err := f.ReadAt(head[:], 0); err == nil && head[0] == 0x1f && head[1] == 0x8b {
+		return seedGzip(f, maxLines), size
 	}
 	const chunk = 64 * 1024
 	var buf []byte
@@ -141,6 +162,47 @@ func seedLines(path string, maxLines int) ([]string, int64) {
 		lines = lines[len(lines)-maxLines:]
 	}
 	return lines, size
+}
+
+// seedGzip decompresses (bounded) and returns the last maxLines lines.
+func seedGzip(f *os.File, maxLines int) []string {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil
+	}
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		return nil
+	}
+	defer zr.Close()
+	ring := make([]string, maxLines)
+	n, head := 0, 0
+	var total int
+	sc := bufio.NewScanner(zr)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if line == "" {
+			continue
+		}
+		if n < maxLines {
+			ring[n] = line
+			n++
+		} else {
+			ring[head] = line
+			head = (head + 1) % maxLines
+		}
+		if total += len(line); total > 64<<20 {
+			break // decompression bomb guard
+		}
+	}
+	if n < maxLines {
+		return ring[:n]
+	}
+	out := make([]string, maxLines)
+	for i := 0; i < maxLines; i++ {
+		out[i] = ring[(head+i)%maxLines]
+	}
+	return out
 }
 
 // Tailer fans out seed+tail goroutines for discovered sources and rescans
@@ -218,9 +280,10 @@ func (t *Tailer) rescan() {
 }
 
 // runSource seeds the file's tail and then follows it with tail -F
-// semantics (rename/recreate and truncate rotation safe). The seed read and
-// the tail handoff share one byte offset so every line is counted exactly
-// once.
+// semantics (rename/recreate and truncate rotation safe). Replay sources
+// (rotated/gz history) emit their seed and stop: they never tail. The seed
+// read and the tail handoff share one byte offset so every line is counted
+// exactly once.
 func (t *Tailer) runSource(src *Source) {
 	defer t.wg.Done()
 	seed, offset := seedLines(src.Path, t.seedN)
@@ -231,12 +294,19 @@ func (t *Tailer) runSource(src *Source) {
 			return
 		}
 	}
+	if src.Replay {
+		return
+	}
 	cfg := tail.Config{
 		Follow:    true,
 		ReOpen:    true,
 		MustExist: false,
-		Logger:    tail.DiscardingLogger,
-		Location:  &tail.SeekInfo{Offset: offset, Whence: io.SeekStart},
+		// Poll instead of inotify: polling has no missed-event race for
+		// appends that land between open and watch registration, at a
+		// negligible cost (one stat per file every 250ms).
+		Poll:     true,
+		Logger:   tail.DiscardingLogger,
+		Location: &tail.SeekInfo{Offset: offset, Whence: io.SeekStart},
 	}
 	// If the file was replaced (rotated) between seed and open, the offset
 	// belongs to the old inode: read the new file from 0.

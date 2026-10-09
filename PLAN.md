@@ -148,10 +148,11 @@ backfill = "10m"; backfill_max_bytes = 8388608
 
 | # | Deliverable | Est. |
 |---|---|---|
-| **MVP** | **wstat-min (Lane 1):** globs (apache+httpd+nginx/Forge), per-file combined-family fingerprint, `%v`/filename vhosts, rotation-safe tail + 1k-line seed, store, header + HOSTS/URLS/CLIENTS + stream, colors, filters `/ h x X`, zoom, cross-filter semantics, DoD tests | **1.5–2 d** |
+| **MVP** | **wstat-min (Lane 1):** globs (apache+httpd+nginx/Forge), per-file combined-family fingerprint, `%v`/filename vhosts, rotation-safe tail + 1k-line seed, store, header + HOSTS/URLS/CLIENTS + stream, colors, filters `/ h x X`, zoom, cross-filter semantics, DoD tests | **1.5–2 d** ✅ |
 | P1 | Detection engine (providers, scoring, cache, `detect --json`, `doctor`) | 1.5–2 d |
 | P2 | Wizard + config lifecycle (edit/set/validate/redetect, hot reload, import/export) | 1–1.5 d |
-| P3 | Full filters (fuzzy, client/path/method/bot/static), view switcher, sort, freeze, themes | 1 d |
+| P3 | Full filters (fuzzy, client/path/method/bot/static), view switcher, sort, freeze, themes | 1 d ✅ |
+| P3.5 | Rotated/gz history replay (`*.log.N`, `*.log.N.gz` — replay-only sources), inotify→poll fix (missed-append race) | — ✅ |
 | P4 | php-fpm (FCGI spike first) tiers 1–3 + Services view + latency columns | 1–1.5 d |
 | P5 | mod_status `?auto` poller, slowlog list, backfill `--since` + gzip replay, polish | 1 d |
 | P6 | Stretch: mod_status in-flight list (ExtendedStatus + HTML scoreboard, best-effort), `ss` connections view, GeoLite2, alerts, ssh source, `--output json`, nginx provider deep support | later |
