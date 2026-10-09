@@ -24,7 +24,7 @@ func mkModel(t *testing.T) Model {
 			Status: 500, Bytes: 128, Time: time.Now(), UA: "curl/8.5.0",
 		})
 	}
-	tailer := logsrc.Start(nil, 0) // no files; used only for source count
+	tailer := logsrc.Start(nil, nil, 0, nil) // no files; used only for source count
 	defer tailer.Stop()
 	m := New(st, tailer)
 	return m

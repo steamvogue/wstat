@@ -4,7 +4,6 @@
 package parser
 
 import (
-	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -139,6 +138,14 @@ func Fingerprint(lines []string) float64 {
 	return float64(ok) / float64(len(lines))
 }
 
+// HasPrefixVhost reports whether the line starts with a vhost:port prefix
+// as produced by Apache's vhost_combined format.
+func HasPrefixVhost(line string) bool {
+	tok, _ := nextToken(line)
+	_, ok := vhostPrefix(tok)
+	return ok
+}
+
 func isBot(ua string) bool {
 	if len(ua) == 0 {
 		return false
@@ -173,7 +180,9 @@ func trimLeftSpace(s string) string {
 }
 
 // vhostPrefix reports whether tok is a "vhost:port" prefix as produced by
-// Apache's vhost_combined format. IPv6 client addresses must not match.
+// Apache's vhost_combined format. The vhost may be a domain or an IP
+// literal (default vhosts log their ServerName, which can be an IP);
+// IPv6 client addresses never match because they contain several colons.
 func vhostPrefix(tok string) (string, bool) {
 	i := strings.LastIndexByte(tok, ':')
 	if i <= 0 || i == len(tok)-1 {
@@ -187,11 +196,7 @@ func vhostPrefix(tok string) (string, bool) {
 			return "", false
 		}
 	}
-	v := tok[:i]
-	if net.ParseIP(v) != nil { // an ip:port literal, not a vhost
-		return "", false
-	}
-	return v, true
+	return tok[:i], true
 }
 
 // readQuoted reads a "..." quoted field, honoring backslash escapes.

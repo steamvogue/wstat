@@ -52,16 +52,25 @@ From source:
 
 ```sh
 git clone https://github.com/steamvogue/wstat
-cd wstat && go build -o wstat ./cmd/wstat
+cd wstat && go build -o wstat .
 ```
 
 ## Usage
 
 ```sh
-wstat                    # auto-discover Apache/nginx logs (defaults)
+wstat                    # auto-detect host layout (Apache/nginx config scan + globs)
+wstat doctor             # what wstat found on this host — attach to bug reports
+wstat detect --json      # machine-readable detection report
 wstat 'samples/*access*' # explicit globs (multiple allowed)
 wstat -n 5000            # seed more history lines per file
 ```
+
+Zero-config detection scans your Apache/nginx configuration (via `apache2ctl -V` /
+`/etc/nginx/nginx.conf`, includes, `envvars`/`Define` expansion) to attribute each log
+to its exact `ServerName` — e.g. `pcash.local-access.log` → `pcash.home` even when the
+filename would guess wrong — and falls back to the standard log globs everywhere else.
+Files declared in config but empty or missing are waited on, so idle vhosts appear the
+moment they receive traffic.
 
 Works great over ssh (`ssh host wstat`) and in tmux. Needs read access to the log
 files — on Debian/Ubuntu, membership in the `adm` group is usually enough; no sudo.

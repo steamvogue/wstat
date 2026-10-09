@@ -4,7 +4,7 @@ project_name: wstat
 
 builds:
   - id: wstat
-    main: ./cmd/wstat
+    main: .
     env:
       - CGO_ENABLED=0
     goos:

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Detection engine (P1)**: `wstat doctor` (human report) and
+  `wstat detect --json` (machine report) plus zero-config runtime wiring.
+  Probes platform, Apache (`apache2ctl -V`/`-M`), config trees
+  (Include/IncludeOptional globs, Define + envvars `$VAR` expansion,
+  VirtualHost mapping), nginx configs, per-file format fingerprinting
+  (gzip-aware), permissions with distro-aware remedies, and logrotate.
+  Log paths map to their exact `ServerName` from the config scan
+  (`pcash.local-access.log` → `pcash.home`); empty/missing declared
+  logs are waited on; rotated/gz history still replays.
+- **Root package layout**: `main.go` moved to the repository root so
+  `go install github.com/steamvogue/wstat@latest` resolves the module's
+  root package directly.
 - MVP dashboard: HOSTS / TOP URLS / CLIENTS panels, live request stream,
   header with req/s, bytes/s and status split; zoom, focus cycling.
 - Zero-config discovery of Apache (Debian/RHEL) and nginx (incl. Laravel
@@ -35,3 +47,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Seeded history no longer feeds rate counters (no fake startup spike).
 - `access.log` maps to vhost `default`; rotation suffixes stripped before
   vhost name extraction.
+- vhost_combined lines with IP-literal vhosts (`127.0.0.1:80 ...`) now
+  parse; IPv6 client addresses are still never mistaken for vhost prefixes.

@@ -52,5 +52,5 @@ jobs:
         run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" ./...
       - name: version wiring
         run: |
-          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=ci" -o /tmp/wstat ./cmd/wstat
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=ci" -o /tmp/wstat .
           /tmp/wstat --version | grep -q "wstat ci"

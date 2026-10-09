@@ -61,7 +61,7 @@ func TestDiscoverClassifiesReplay(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "b-access.log.2.gz"), gzipBytes(t, "y\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	srcs := Discover([]string{filepath.Join(dir, "a-access.log*"), filepath.Join(dir, "b-access.log*")})
+	srcs := Discover([]string{filepath.Join(dir, "a-access.log*"), filepath.Join(dir, "b-access.log*")}, nil)
 	byPath := map[string]Source{}
 	for _, s := range srcs {
 		byPath[filepath.Base(s.Path)] = s
@@ -120,7 +120,7 @@ func TestReplayOnlyDoesNotTail(t *testing.T) {
 	if err := os.WriteFile(p, []byte("old1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tr := Start([]string{p}, 10)
+	tr := Start(Discover([]string{p}, nil), []string{p}, 10, nil)
 	defer tr.Stop()
 	deadline := time.After(2 * time.Second)
 	select {
@@ -154,7 +154,7 @@ func TestDiscoverSkipsErrorLogs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := Discover([]string{filepath.Join(dir, "*access*.log"), filepath.Join(dir, "*error*.log")})
+	got := Discover([]string{filepath.Join(dir, "*access*.log"), filepath.Join(dir, "*error*.log")}, nil)
 	if len(got) != 2 {
 		t.Fatalf("discover = %+v, want 2 sources", got)
 	}
@@ -207,11 +207,11 @@ func TestTailRotation(t *testing.T) {
 	}
 	write("first\n")
 
-	srcs := Discover([]string{p})
+	srcs := Discover([]string{p}, nil)
 	if len(srcs) != 1 || srcs[0].Vhost != "site" {
 		t.Fatalf("discover = %+v", srcs)
 	}
-	tr := Start([]string{p}, 10)
+	tr := Start(Discover([]string{p}, nil), []string{p}, 10, nil)
 
 	counts := map[string]int{}
 	deadline := time.After(8 * time.Second)
@@ -264,11 +264,11 @@ func TestSeedStartsPopulated(t *testing.T) {
 	if err := os.WriteFile(p, []byte("a\nb\nc\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	srcs := Discover([]string{p})
+	srcs := Discover([]string{p}, nil)
 	if len(srcs) != 1 || srcs[0].Vhost != "pop" {
 		t.Fatalf("discover = %+v", srcs)
 	}
-	tr := Start([]string{p}, 10)
+	tr := Start(Discover([]string{p}, nil), []string{p}, 10, nil)
 	defer tr.Stop()
 	counts := map[string]int{}
 	deadline := time.After(2 * time.Second)

@@ -17,6 +17,15 @@ labels: bug
 # exact command / globs used
 ```
 
+**Doctor output**
+
+<!-- Paste the full output of `wstat doctor` (it reports the detected layout,
+log formats, permissions and warnings — it never sends anything anywhere). -->
+
+```
+# wstat doctor output
+```
+
 **What happened?**
 
 <!-- What did you expect, what happened instead? A `script(1)` transcript or screenshot helps. -->

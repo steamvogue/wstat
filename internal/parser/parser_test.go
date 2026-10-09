@@ -48,6 +48,16 @@ func TestParseVhostCombined(t *testing.T) {
 	if !r.Bot {
 		t.Error("curl should be marked bot")
 	}
+	// IP-literal vhost prefix (default vhost with ServerName set to an IP).
+	r2, ok2 := Parse(`127.0.0.1:80 10.0.0.9 - - [21/Oct/2025:14:26:43 +0200] "GET / HTTP/1.1" 200 5 "-" "-"`, "fb")
+	if !ok2 || r2.Vhost != "127.0.0.1" || r2.IP != "10.0.0.9" {
+		t.Errorf("ip-vhost parse = %+v ok=%v", r2, ok2)
+	}
+	// IPv6 client must not be mistaken for a vhost prefix.
+	r3, ok3 := Parse(`2001:db8::1 - - [21/Oct/2025:14:26:43 +0200] "GET / HTTP/1.1" 200 5 "-" "-"`, "fb")
+	if !ok3 || r3.IP != "2001:db8::1" || r3.Vhost != "fb" {
+		t.Errorf("ipv6 parse = %+v ok=%v", r3, ok3)
+	}
 }
 
 func TestParseEdgeCases(t *testing.T) {

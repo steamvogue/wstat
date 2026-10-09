@@ -55,10 +55,11 @@ type RawLine struct {
 }
 
 // Discover finds readable, non-empty access-log files matching the globs
-// (DefaultGlobs when nil). Error logs are skipped. Files that are not plain
-// "*.log" (e.g. ".log.1", ".log.2.gz") are classified as Replay. Sorted by
-// path.
-func Discover(globs []string) []Source {
+// (DefaultGlobs when nil). Error logs are skipped. vhostMap (path → vhost,
+// from the detection config scan) overrides filename attribution. Files that
+// are not plain "*.log" (e.g. ".log.1", ".log.2.gz") are classified as
+// Replay. Sorted by path.
+func Discover(globs []string, vhostMap map[string]string) []Source {
 	if len(globs) == 0 {
 		globs = DefaultGlobs
 	}
@@ -82,11 +83,14 @@ func Discover(globs []string) []Source {
 			if err != nil || fi.IsDir() || fi.Size() == 0 {
 				continue
 			}
-			live := strings.HasSuffix(base, ".log")
+			vhost := VhostFromFilename(base)
+			if v2, ok := vhostMap[p]; ok && v2 != "" {
+				vhost = v2
+			}
 			out = append(out, Source{
 				Path:   p,
-				Vhost:  vhostFromFilename(rotationSuffix.ReplaceAllString(base, "")),
-				Replay: !live,
+				Vhost:  vhost,
+				Replay: !strings.HasSuffix(base, ".log"),
 			})
 		}
 	}
@@ -94,7 +98,15 @@ func Discover(globs []string) []Source {
 	return out
 }
 
-func vhostFromFilename(base string) string {
+func vhostFromFilename(base string) string { return VhostFromFilename(base) }
+
+// VhostFromFilename maps a log filename to its vhost, tolerating logrotate
+// suffixes (".log.12.gz"): strips rotation suffixes, applies the
+// <vhost>-access.log / <vhost>-ssl-access.log / <vhost>.access.log patterns
+// (443 variants merge into the domain) and maps plain access logs to
+// "default". Exported for the detection package.
+func VhostFromFilename(base string) string {
+	base = rotationSuffix.ReplaceAllString(base, "")
 	for _, re := range vhostPatterns {
 		if m := re.FindStringSubmatch(base); len(m) > 1 && m[1] != "" {
 			return m[1]
@@ -208,9 +220,10 @@ func seedGzip(f *os.File, maxLines int) []string {
 // Tailer fans out seed+tail goroutines for discovered sources and rescans
 // the globs periodically for new log files. Lines arrive on Ch until Stop.
 type Tailer struct {
-	Ch    chan RawLine
-	globs []string
-	seedN int
+	Ch       chan RawLine
+	globs    []string
+	seedN    int
+	vhostMap map[string]string
 
 	stopCh   chan struct{}
 	mu       sync.Mutex
@@ -219,29 +232,36 @@ type Tailer struct {
 	wg       sync.WaitGroup
 }
 
-// Start discovers sources once (synchronously) and keeps scanning every
-// minute for new files.
-func Start(globs []string, seedN int) *Tailer {
+// Start begins tailing the given initial sources and keeps rescanning the
+// globs (skipped when empty) every minute for new files. Sources from
+// detection are exact; rescan-discovered files get vhosts from vhostMap or
+// the filename.
+func Start(initial []Source, globs []string, seedN int, vhostMap map[string]string) *Tailer {
 	t := &Tailer{
-		Ch:      make(chan RawLine, 4096),
-		globs:   globs,
-		seedN:   seedN,
-		stopCh:  make(chan struct{}),
-		running: map[string]*Source{},
+		Ch:       make(chan RawLine, 4096),
+		globs:    globs,
+		seedN:    seedN,
+		vhostMap: vhostMap,
+		stopCh:   make(chan struct{}),
+		running:  map[string]*Source{},
 	}
-	t.rescan()
-	go func() {
-		tick := time.NewTicker(60 * time.Second)
-		defer tick.Stop()
-		for {
-			select {
-			case <-t.stopCh:
-				return
-			case <-tick.C:
-				t.rescan()
+	for i := range initial {
+		t.startSource(&initial[i])
+	}
+	if len(globs) > 0 {
+		go func() {
+			tick := time.NewTicker(60 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-t.stopCh:
+					return
+				case <-tick.C:
+					t.rescan()
+				}
 			}
-		}
-	}()
+		}()
+	}
 	return t
 }
 
@@ -264,19 +284,23 @@ func (t *Tailer) Stop() {
 }
 
 func (t *Tailer) rescan() {
-	for _, src := range Discover(t.globs) {
-		t.mu.Lock()
-		if _, dup := t.running[src.Path]; dup {
-			t.mu.Unlock()
-			continue
-		}
-		s := src
-		t.running[s.Path] = &s
-		t.srcOrder = append(t.srcOrder, &s)
-		t.mu.Unlock()
-		t.wg.Add(1)
-		go t.runSource(&s)
+	for _, src := range Discover(t.globs, t.vhostMap) {
+		t.startSource(&src)
 	}
+}
+
+func (t *Tailer) startSource(src *Source) {
+	t.mu.Lock()
+	if _, dup := t.running[src.Path]; dup {
+		t.mu.Unlock()
+		return
+	}
+	s := *src
+	t.running[s.Path] = &s
+	t.srcOrder = append(t.srcOrder, &s)
+	t.mu.Unlock()
+	t.wg.Add(1)
+	go t.runSource(&s)
 }
 
 // runSource seeds the file's tail and then follows it with tail -F
