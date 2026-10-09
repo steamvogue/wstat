@@ -4,7 +4,10 @@ package logsrc
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nxadm/tail"
+	"github.com/steamvogue/wstat/internal/filetail"
 )
 
 // Source is one tailed access log file.
@@ -22,7 +25,23 @@ type Source struct {
 	Path   string
 	Vhost  string // fallback vhost derived from the filename
 	Replay bool   // rotated/compressed history: replay once, never tail
+	Kind   Kind
+	Format string // service access format; ignored for web sources
 }
+
+// Kind determines ingestion ownership; service events never enter web totals.
+type Kind uint8
+
+const (
+	Web Kind = iota
+	FPM
+)
+
+// IsReplay recognizes numbered/date rotations and compressed history. Custom
+// active filenames, including access_log, remain live.
+var replaySuffix = regexp.MustCompile(`(?:\.[0-9]+|[-.]\d{4}-?\d{2}-?\d{2})(?:\.gz)?$|\.gz$`)
+
+func IsReplay(path string) bool { return replaySuffix.MatchString(filepath.Base(path)) }
 
 // DefaultGlobs covers common Apache/nginx layouts (Debian, RHEL, nginx/Forge)
 // plus their rotated variants (replayed as history).
@@ -54,11 +73,11 @@ type RawLine struct {
 	Seeded bool // true when replayed from history at startup
 }
 
-// Discover finds readable, non-empty access-log files matching the globs
+// Discover finds regular access-log files matching the globs
 // (DefaultGlobs when nil). Error logs are skipped. vhostMap (path → vhost,
-// from the detection config scan) overrides filename attribution. Files that
-// are not plain "*.log" (e.g. ".log.1", ".log.2.gz") are classified as
-// Replay. Sorted by path.
+// from the detection config scan) overrides filename attribution. Files
+// with recognized rotation/compression suffixes are Replay. Active custom
+// filenames are live. Sorted by path.
 func Discover(globs []string, vhostMap map[string]string) []Source {
 	if len(globs) == 0 {
 		globs = DefaultGlobs
@@ -67,8 +86,11 @@ func Discover(globs []string, vhostMap map[string]string) []Source {
 	var out []Source
 	for _, g := range globs {
 		matches, err := filepath.Glob(g)
-		if err != nil || len(matches) == 0 {
+		if err != nil {
 			continue
+		}
+		if len(matches) == 0 && !strings.ContainsAny(g, "*?[") {
+			matches = []string{g}
 		}
 		for _, p := range matches {
 			if seen[p] {
@@ -80,17 +102,17 @@ func Discover(globs []string, vhostMap map[string]string) []Source {
 				continue
 			}
 			fi, err := os.Stat(p)
-			if err != nil || fi.IsDir() || fi.Size() == 0 {
+			if err != nil && !errors.Is(err, os.ErrNotExist) || err == nil && !fi.Mode().IsRegular() {
 				continue
 			}
 			vhost := VhostFromFilename(base)
-			if v2 := matchVhostPin(vhostMap, p); v2 != "" {
+			if v2 := MatchVhostPin(vhostMap, p); v2 != "" {
 				vhost = v2
 			}
 			out = append(out, Source{
 				Path:   p,
 				Vhost:  vhost,
-				Replay: !strings.HasSuffix(base, ".log"),
+				Replay: IsReplay(base),
 			})
 		}
 	}
@@ -101,7 +123,7 @@ func Discover(globs []string, vhostMap map[string]string) []Source {
 // matchVhostPin resolves a path against the vhost map: exact match first,
 // then glob pins (e.g. "/var/log/apache2/x-access.log*" covers rotated
 // variants of the same vhost).
-func matchVhostPin(vhostMap map[string]string, path string) string {
+func MatchVhostPin(vhostMap map[string]string, path string) string {
 	if len(vhostMap) == 0 {
 		return ""
 	}
@@ -148,79 +170,116 @@ func VhostFromFilename(base string) string {
 // returns the byte offset where live tailing must resume so that no line is
 // lost or double-counted. Gzip files are fully decompressed (bounded) and
 // only their tail is kept; their offset is irrelevant for replay sources.
+// ReadSeed returns bounded history in deterministic file order for diagnostics.
+func ReadSeed(path string, maxLines int) ([]string, error) {
+	f, err := filetail.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	lines, _, _, err := seedFile(f, maxLines)
+	return lines, err
+}
+
 func seedLines(path string, maxLines int) ([]string, int64) {
-	f, err := os.Open(path)
+	f, err := filetail.Open(path)
 	if err != nil {
 		return nil, 0
 	}
 	defer func() { _ = f.Close() }()
+	lines, offset, _, _ := seedFile(f, maxLines)
+	return lines, offset
+}
+
+// seedFile reads the retained descriptor, leaving a partial trailing line for
+// the live reader. Cloning each retained line releases the large read buffer.
+func seedFile(f *os.File, maxLines int) ([]string, int64, bool, error) {
 	fi, err := f.Stat()
-	if err != nil || fi.Size() == 0 {
-		return nil, 0
+	if err != nil {
+		return nil, 0, false, err
 	}
 	size := fi.Size()
-	if maxLines <= 0 {
-		return nil, size
+	if maxLines <= 0 { // no history, including an already-started trailing record
+		var last [1]byte
+		_, _ = f.ReadAt(last[:], size-1)
+		return nil, size, size > 0 && last[0] != '\n', nil
+	}
+	if maxLines > 100000 {
+		return nil, size, false, fmt.Errorf("seed_lines exceeds 100000")
 	}
 	var head [2]byte
-	if _, err := f.ReadAt(head[:], 0); err == nil && head[0] == 0x1f && head[1] == 0x8b {
-		return seedGzip(f, maxLines), size
+	_, _ = f.ReadAt(head[:], 0)
+	if head[0] == 0x1f && head[1] == 0x8b || strings.HasSuffix(f.Name(), ".gz") {
+		lines, err := seedGzipChecked(f, maxLines, 64<<20)
+		return lines, size, false, err
 	}
 	const chunk = 64 * 1024
 	var buf []byte
 	off := size
 	for off > 0 && size-off < 4*chunk {
-		step := off
-		if step > chunk {
-			step = chunk
-		}
+		step := min(off, chunk)
 		off -= step
 		b := make([]byte, step)
 		if _, err := f.ReadAt(b, off); err != nil && err != io.EOF {
-			return nil, size
+			return nil, size, false, err
 		}
 		buf = append(b, buf...)
+		if bytes.Count(buf, []byte{'\n'}) > maxLines {
+			break
+		}
 	}
-	lines := strings.Split(string(buf), "\n")
-	// Drop the first line: partial unless we read from offset 0.
+	resume := size
+	end := len(buf)
+	if end > 0 && buf[end-1] != '\n' {
+		pos := bytes.LastIndexByte(buf, '\n')
+		if pos < 0 {
+			if off == 0 {
+				return nil, 0, false, nil
+			}
+			return nil, size, true, fmt.Errorf("%s: startup partial line exceeds seed byte budget", f.Name())
+		}
+		end = pos + 1
+		resume = off + int64(end)
+	}
+	text := string(buf[:end])
+	lines := strings.Split(text, "\n")
 	if off > 0 && len(lines) > 0 {
 		lines = lines[1:]
 	}
-	// Drop trailing empty piece from the final newline.
-	if n := len(lines); n > 0 && lines[n-1] == "" {
-		lines = lines[:n-1]
-	}
-	// If the buffer ends mid-line, the tailer re-delivers that line fully;
-	// drop the partial copy so it is not double-counted.
-	if len(buf) > 0 && buf[len(buf)-1] != '\n' && len(lines) > 0 {
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
 	if len(lines) > maxLines {
 		lines = lines[len(lines)-maxLines:]
 	}
-	return lines, size
+	for i := range lines {
+		lines[i] = strings.Clone(lines[i])
+	}
+	if off > 0 && len(lines) < maxLines {
+		err = fmt.Errorf("%s: seed history limited to 256 KiB", f.Name())
+	}
+	return lines, resume, false, err
 }
 
-// seedGzip decompresses (bounded) and returns the last maxLines lines.
-func seedGzip(f *os.File, maxLines int) []string {
+func seedGzipChecked(f *os.File, maxLines int, limit int64) ([]string, error) {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return nil
+		return nil, err
 	}
 	zr, err := gzip.NewReader(f)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer func() { _ = zr.Close() }()
+	lr := &io.LimitedReader{R: zr, N: limit + 1}
+	sc := bufio.NewScanner(lr)
+	sc.Buffer(make([]byte, 64*1024), filetail.MaxLine)
 	ring := make([]string, maxLines)
 	n, head := 0, 0
-	var total int
-	sc := bufio.NewScanner(zr)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
 	for sc.Scan() {
-		line := sc.Text()
-		if line == "" {
-			continue
+		if lr.N == 0 {
+			return nil, fmt.Errorf("%s: gzip history exceeds %d decompressed bytes", f.Name(), limit)
 		}
+		line := sc.Text()
 		if n < maxLines {
 			ring[n] = line
 			n++
@@ -228,18 +287,21 @@ func seedGzip(f *os.File, maxLines int) []string {
 			ring[head] = line
 			head = (head + 1) % maxLines
 		}
-		if total += len(line); total > 64<<20 {
-			break // decompression bomb guard
-		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if lr.N == 0 {
+		return nil, fmt.Errorf("%s: gzip history exceeds %d decompressed bytes", f.Name(), limit)
 	}
 	if n < maxLines {
-		return ring[:n]
+		return ring[:n], nil
 	}
-	out := make([]string, maxLines)
-	for i := 0; i < maxLines; i++ {
-		out[i] = ring[(head+i)%maxLines]
+	out := make([]string, n)
+	for i := range out {
+		out[i] = ring[(head+i)%n]
 	}
-	return out
+	return out, nil
 }
 
 // Tailer fans out seed+tail goroutines for discovered sources and rescans
@@ -251,11 +313,15 @@ type Tailer struct {
 	vhostMap    map[string]string
 	rescanEvery time.Duration // test override; default 60s
 
-	stopCh   chan struct{}
-	mu       sync.Mutex
-	running  map[string]*Source
-	srcOrder []*Source
-	wg       sync.WaitGroup
+	stopCh      chan struct{}
+	mu          sync.Mutex
+	running     map[string]*Source
+	srcOrder    []*Source
+	wg          sync.WaitGroup
+	stopped     bool
+	stopOnce    sync.Once
+	seedSlots   chan struct{}
+	diagnostics map[string]string
 }
 
 // Option customizes a Tailer at Start time.
@@ -272,12 +338,14 @@ func WithRescanEvery(d time.Duration) Option {
 // the filename.
 func Start(initial []Source, globs []string, seedN int, vhostMap map[string]string, opts ...Option) *Tailer {
 	t := &Tailer{
-		Ch:       make(chan RawLine, 4096),
-		globs:    globs,
-		seedN:    seedN,
-		vhostMap: vhostMap,
-		stopCh:   make(chan struct{}),
-		running:  map[string]*Source{},
+		Ch:          make(chan RawLine, 4096),
+		globs:       globs,
+		seedN:       seedN,
+		vhostMap:    vhostMap,
+		stopCh:      make(chan struct{}),
+		running:     map[string]*Source{},
+		seedSlots:   make(chan struct{}, 4),
+		diagnostics: map[string]string{},
 	}
 	for _, o := range opts {
 		o(t)
@@ -289,7 +357,9 @@ func Start(initial []Source, globs []string, seedN int, vhostMap map[string]stri
 		// Capture the interval before the goroutine starts so callers
 		// cannot race it via later mutation.
 		every := t.rescanEvery
+		t.wg.Add(1)
 		go func() {
+			defer t.wg.Done()
 			for {
 				d := every
 				if d <= 0 {
@@ -320,9 +390,14 @@ func (t *Tailer) Sources() []Source {
 
 // Stop terminates all tailers and closes Ch.
 func (t *Tailer) Stop() {
-	close(t.stopCh)
-	t.wg.Wait()
-	close(t.Ch)
+	t.stopOnce.Do(func() {
+		t.mu.Lock()
+		t.stopped = true
+		close(t.stopCh)
+		t.mu.Unlock()
+		t.wg.Wait()
+		close(t.Ch)
+	})
 }
 
 func (t *Tailer) rescan() {
@@ -339,15 +414,15 @@ func (t *Tailer) rescan() {
 
 func (t *Tailer) startSource(src *Source) {
 	t.mu.Lock()
-	if _, dup := t.running[src.Path]; dup {
+	if _, dup := t.running[src.Path]; dup || t.stopped {
 		t.mu.Unlock()
 		return
 	}
 	s := *src
 	t.running[s.Path] = &s
 	t.srcOrder = append(t.srcOrder, &s)
-	t.mu.Unlock()
 	t.wg.Add(1)
+	t.mu.Unlock()
 	go t.runSource(&s)
 }
 
@@ -369,62 +444,82 @@ func (t *Tailer) forgetSource(src *Source) {
 	}
 }
 
-// runSource seeds the file's tail and then follows it with tail -F
-// semantics (rename/recreate and truncate rotation safe). Replay sources
-// (rotated/gz history) emit their seed and stop: they never tail. The seed
-// read and the tail handoff share one byte offset so every line is counted
-// exactly once.
+// Errors returns bounded per-source diagnostics without mutable source fields.
+func (t *Tailer) Errors() map[string]string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make(map[string]string, len(t.diagnostics))
+	for k, v := range t.diagnostics {
+		out[k] = v
+	}
+	return out
+}
+func (t *Tailer) report(path string, err error) {
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.diagnostics) < 512 || t.diagnostics[path] != "" {
+		t.diagnostics[path] = err.Error()
+	}
+}
+
+// runSource retains the seed descriptor through live following, so rotation
+// cannot turn an old offset into a seek on a new inode.
 func (t *Tailer) runSource(src *Source) {
 	defer t.wg.Done()
 	defer t.forgetSource(src)
-	seed, offset := seedLines(src.Path, t.seedN)
-	for _, l := range seed {
-		select {
-		case t.Ch <- RawLine{Text: l, Source: src, Seeded: true}:
-		case <-t.stopCh:
-			return
+	select {
+	case t.seedSlots <- struct{}{}:
+	case <-t.stopCh:
+		return
+	}
+	f, err := filetail.Open(src.Path)
+	var seed []string
+	var offset int64
+	var skip bool
+	if err == nil {
+		seed, offset, skip, err = seedFile(f, t.seedN)
+	}
+	t.report(src.Path, err)
+	reader := filetail.New(src.Path, f, offset, skip)
+	defer func() { _ = reader.Close() }()
+	send := func(lines []string, seeded bool) bool {
+		for _, l := range lines {
+			select {
+			case t.Ch <- RawLine{Text: l, Source: src, Seeded: seeded}:
+			case <-t.stopCh:
+				return false
+			}
 		}
+		return true
 	}
-	if src.Replay {
+	seedSent := send(seed, true)
+	<-t.seedSlots
+	if !seedSent || src.Replay {
 		return
 	}
-	cfg := tail.Config{
-		Follow:    true,
-		ReOpen:    true,
-		MustExist: false,
-		// Poll instead of inotify: polling has no missed-event race for
-		// appends that land between open and watch registration, at a
-		// negligible cost (one stat per file every 250ms).
-		Poll:     true,
-		Logger:   tail.DiscardingLogger,
-		Location: &tail.SeekInfo{Offset: offset, Whence: io.SeekStart},
-	}
-	// If the file was replaced (rotated) between seed and open, the offset
-	// belongs to the old inode: read the new file from 0.
-	if fi, err := os.Stat(src.Path); err == nil && fi.Size() < offset {
-		cfg.Location = &tail.SeekInfo{Offset: 0, Whence: io.SeekStart}
-	}
-	tf, err := tail.TailFile(src.Path, cfg)
-	if err != nil {
-		return
-	}
-	defer func() { _ = tf.Stop() }()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-t.stopCh:
 			return
-		case line, ok := <-tf.Lines:
-			if !ok {
-				return
-			}
-			if line.Err != nil {
-				continue
-			}
-			select {
-			case t.Ch <- RawLine{Text: line.Text, Source: src}:
-			case <-t.stopCh:
-				return
-			}
+		default:
+		}
+		lines, more, err := reader.Read(256 * 1024)
+		t.report(src.Path, err)
+		if !send(lines, false) {
+			return
+		}
+		if more {
+			continue
+		}
+		select {
+		case <-t.stopCh:
+			return
+		case <-ticker.C:
 		}
 	}
 }

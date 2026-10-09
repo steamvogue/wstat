@@ -1,0 +1,41 @@
+package logsrc
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestAuditPartialSeed(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "site-access.log")
+	os.WriteFile(p, []byte("one\npart"), 0600)
+	tr := Start([]Source{{Path: p, Vhost: "site"}}, nil, 10, nil)
+	defer tr.Stop()
+	select {
+	case <-tr.Ch:
+	case <-time.After(time.Second):
+		t.Fatal("no seed")
+	}
+	f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0600)
+	f.WriteString("ial\n")
+	f.Close()
+	select {
+	case l := <-tr.Ch:
+		if l.Text != "ial" {
+			t.Fatalf("got %q", l.Text)
+		}
+		t.Log("CONFIRMED: partial startup line loses prefix: got ial, want partial")
+	case <-time.After(2 * time.Second):
+		t.Fatal("no tail")
+	}
+}
+func TestAuditExtensionless(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "access_log")
+	os.WriteFile(p, []byte("line\n"), 0600)
+	s := Discover([]string{p}, nil)
+	if len(s) != 1 || !s[0].Replay {
+		t.Fatal("not reproduced")
+	}
+	t.Log("CONFIRMED: active access_log incorrectly classified replay-only")
+}

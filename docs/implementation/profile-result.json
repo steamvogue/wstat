@@ -1,0 +1,21 @@
+{
+  "binary": "/tmp/wstat-fixed",
+  "mode": "idle",
+  "seed_requests": 54000,
+  "sources": 63,
+  "hosts": 46,
+  "terminal": "160x50",
+  "refresh_ms": 500,
+  "gomaxprocs": 4,
+  "warmup_seconds": 3.0427588948514313,
+  "steady_seconds": 10.000930142123252,
+  "startup_cpu_percent": 16.103806345915725,
+  "steady_cpu_percent": 2.9997209833155414,
+  "rss_start": 73170944,
+  "rss_end": 79462400,
+  "peak_rss": 79462400,
+  "live_emitted": 0,
+  "sentinel_visible": true,
+  "sentinel_lag_seconds": 0.5145161340478808,
+  "exit_code": 0
+}

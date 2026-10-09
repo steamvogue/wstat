@@ -1,35 +1,9 @@
 package fpm
 
 import (
-	"bufio"
 	"fmt"
-	"os"
 	"strings"
-	"sync"
 )
-
-var slowMu sync.Mutex
-
-// countSlowLogLines counts timestamped entries in a slowlog (cheap,
-// bounded scan from the end).
-func countSlowLogLines(path string) int64 {
-	slowMu.Lock()
-	defer slowMu.Unlock()
-	f, err := os.Open(path)
-	if err != nil {
-		return 0
-	}
-	defer func() { _ = f.Close() }()
-	var n int64
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	for sc.Scan() {
-		if _, ok := ParseSlowlogHead(sc.Text()); ok {
-			n++
-		}
-	}
-	return n
-}
 
 // DoctorText renders the php-fpm section for `wstat doctor`.
 func DoctorText(pools []Pool) string {

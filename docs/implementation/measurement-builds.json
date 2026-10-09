@@ -1,0 +1,10 @@
+{
+  "baseline_revision": "335dfe2",
+  "fixed_revision": "working tree based on 335dfe2",
+  "go": "go1.26.0 linux/arm64",
+  "hardware": "Raspberry Pi 5 Model B Rev 1.0",
+  "binary_sha256": {
+    "/tmp/wstat-baseline": "2cc24d9c0b2818e6471c418597c91c99b50278bfd64ddee3717b7cf3817b6fb2",
+    "/tmp/wstat-fixed": "8da0f44418a35e9e6f1e34b8875071c63fb5f81a059859a26737d2bb165c1a58"
+  }
+}

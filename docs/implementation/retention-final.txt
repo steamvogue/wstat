@@ -1,0 +1,8 @@
+=== RUN   TestRetentionSoak
+    benchmark_test.go:105: requests=50000 hosts=2048 urls=20000 clients=20000 associations=20000 retained_heap=29814200 gc=8
+    benchmark_test.go:105: requests=100000 hosts=2048 urls=20000 clients=20000 associations=20000 retained_heap=29841800 gc=11
+    benchmark_test.go:105: requests=150000 hosts=2048 urls=20000 clients=20000 associations=20000 retained_heap=29898712 gc=15
+    benchmark_test.go:105: requests=200000 hosts=2048 urls=20000 clients=20000 associations=20000 retained_heap=29896632 gc=18
+--- PASS: TestRetentionSoak (1.53s)
+PASS
+ok  	github.com/steamvogue/wstat/internal/store	1.530s

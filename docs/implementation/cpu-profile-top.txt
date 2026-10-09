@@ -1,0 +1,23 @@
+File: wstat-fixed
+Build ID: 1fc3864d3aec9ecf817b617d80f6f9c33917cd52
+Type: cpu
+Time: 2026-10-09 23:14:47 CEST
+Duration: 10.57s, Total samples = 320ms ( 3.03%)
+Showing nodes accounting for 260ms, 81.25% of 320ms total
+Showing top 15 nodes out of 108
+      flat  flat%   sum%        cum   cum%
+      50ms 15.62% 15.62%      130ms 40.62%  github.com/charmbracelet/x/ansi.stringWidth
+      30ms  9.38% 25.00%       30ms  9.38%  internal/runtime/syscall/linux.Syscall6
+      20ms  6.25% 31.25%      200ms 62.50%  charm.land/lipgloss/v2.Style.Render
+      20ms  6.25% 37.50%       20ms  6.25%  cmpbody
+      20ms  6.25% 43.75%       70ms 21.88%  github.com/charmbracelet/x/ansi.FirstGraphemeCluster[go.shape.string]
+      20ms  6.25% 50.00%       30ms  9.38%  github.com/clipperhouse/uax29/v2/graphemes.(*Iterator[go.shape.string]).Next
+      20ms  6.25% 56.25%       20ms  6.25%  github.com/clipperhouse/uax29/v2/graphemes.(*Iterator[go.shape.string]).Value (inline)
+      10ms  3.12% 59.38%       10ms  3.12%  charm.land/lipgloss/v2.Style.isBorderStyleSetWithoutSides
+      10ms  3.12% 62.50%       10ms  3.12%  github.com/charmbracelet/ultraviolet.(*TerminalRenderer).updatePen
+      10ms  3.12% 65.62%       10ms  3.12%  github.com/charmbracelet/x/ansi.wrap
+      10ms  3.12% 68.75%       10ms  3.12%  github.com/charmbracelet/x/ansi/parser.TransitionTable.Transition (inline)
+      10ms  3.12% 71.88%       10ms  3.12%  github.com/clipperhouse/uax29/v2/graphemes.lookup[go.shape.string]
+      10ms  3.12% 75.00%       10ms  3.12%  internal/bytealg.IndexByteString
+      10ms  3.12% 78.12%       10ms  3.12%  internal/strconv.formatBase10
+      10ms  3.12% 81.25%       20ms  6.25%  runtime.concatstrings

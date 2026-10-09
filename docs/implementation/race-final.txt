@@ -1,0 +1,31 @@
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat	0.006s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/config	0.006s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/detect	0.006s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/filetail	0.007s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/fpm	0.006s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/logsrc	0.006s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/parser	0.006s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/store	0.005s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/ui	0.007s
+FATAL: ThreadSanitizer: unsupported VMA range
+FATAL: Found 47 - Supported 48
+FAIL	github.com/steamvogue/wstat/internal/wizard	0.007s
+FAIL

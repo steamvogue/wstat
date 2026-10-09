@@ -38,6 +38,7 @@ func (s *scanner) scanNginxFile(path string, depth int) {
 		s.warn("include limit reached at " + path)
 		return
 	}
+	s.res.Files = append(s.res.Files, path)
 	f, err := os.Open(path)
 	if err != nil {
 		s.warn("cannot read " + path)
@@ -70,7 +71,9 @@ func (s *scanner) scanNginxLine(line string, depth int) {
 	case enteringServer:
 		s.vhost = &VhostBlock{}
 	case tokens[0] == "include" && len(tokens) >= 2:
-		matches, _ := filepath.Glob(s.abs(tokens[1]))
+		pattern := s.abs(tokens[1])
+		s.res.IncludePatterns = append(s.res.IncludePatterns, pattern)
+		matches, _ := filepath.Glob(pattern)
 		sort.Strings(matches)
 		for _, m := range matches {
 			if fi, err := os.Stat(m); err != nil || fi.IsDir() {

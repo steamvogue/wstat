@@ -208,3 +208,43 @@ func TestFuzzySearch(t *testing.T) {
 		t.Error("fuzzy must not match unrelated needle")
 	}
 }
+
+func TestRefreshKeepsSelectedIdentityAndClampsSearch(t *testing.T) {
+	s := store.New()
+	add := func(host string) {
+		s.AddSeed(parser.Record{Vhost: host, IP: host, Method: "GET", Path: "/", Status: 200, Time: time.Now()})
+	}
+	add("alpha")
+	add("beta")
+	m := New(s, nil, nil)
+	m.sorts[0] = store.SortHits
+	m.refresh()
+	for i, row := range m.hosts {
+		if row.Key == "beta" {
+			m.sel[0] = i
+		}
+	}
+	add("beta")
+	m.refresh()
+	if m.hosts[m.sel[0]].Key != "beta" {
+		t.Fatal("selection moved to another host after reorder")
+	}
+	m.focus, m.search = 0, "alpha"
+	m.refresh()
+	if m.sel[0] != 0 || len(m.filteredRows(0)) != 1 || m.filteredRows(0)[0].Key != "alpha" {
+		t.Fatal("selection was not clamped to visible search results")
+	}
+}
+
+func TestServicesKeepDifferentMeasurementScopes(t *testing.T) {
+	m := New(store.New(), nil, func() []fpm.PoolView {
+		return []fpm.PoolView{{Pool: fpm.Pool{Name: "www"}, Status: &fpm.Status{SlowRequests: 7}, SlowSeen: 3, RSSKB: 1024,
+			Access: fpm.ServiceMetrics{Requests: 2, DurationUs: 4000, DurationCount: 2, MemoryBytes: 4194304, MemoryCount: 2, Bad: 1}}}
+	})
+	out := strings.Join(m.fpmLines(220, 10), "\n")
+	for _, want := range []string{"slow:7", "slowlog:3", "est-mem:", "log:2", "avg:2.0ms", "req-mem:", "bad:1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("service measurements missing %q: %s", want, out)
+		}
+	}
+}

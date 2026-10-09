@@ -5,6 +5,8 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +29,9 @@ type Config struct {
 		Enabled bool `toml:"enabled"` // zero-config detection when no paths set
 		Cache   bool `toml:"cache"`   // cache detection results between runs
 	} `toml:"detect"`
+	FPM struct {
+		Enabled bool `toml:"enabled"`
+	} `toml:"fpm"`
 }
 
 // Origins records which file provided each part of the config.
@@ -35,6 +40,7 @@ type Origins struct {
 	SeedLine string
 	Vhost    string
 	Detect   string
+	FPM      string
 }
 
 // Loaded is a merged config plus per-field origins.
@@ -44,6 +50,23 @@ type Loaded struct {
 	// UserPath and ProjectPath are the files that were consulted.
 	UserPath    string
 	ProjectPath string
+	Diagnostics []Diagnostic
+}
+
+// Diagnostic preserves the failing path and underlying read/parse error.
+type Diagnostic struct {
+	Path  string
+	Cause error
+}
+
+func (d Diagnostic) Error() string { return d.Path + ": " + d.Cause.Error() }
+func (d Diagnostic) Unwrap() error { return d.Cause }
+func (l *Loaded) Err() error {
+	errs := make([]error, len(l.Diagnostics))
+	for i := range l.Diagnostics {
+		errs[i] = l.Diagnostics[i]
+	}
+	return errors.Join(errs...)
 }
 
 // Default returns the built-in defaults.
@@ -52,6 +75,7 @@ func Default() Config {
 	c.Source.SeedLines = 1000
 	c.Detect.Enabled = true
 	c.Detect.Cache = true
+	c.FPM.Enabled = true
 	return c
 }
 
@@ -66,7 +90,7 @@ func UserConfigPath() string {
 
 // ProjectConfigPath returns ./wstat.toml if present, else "".
 func ProjectConfigPath() string {
-	if _, err := os.Stat("wstat.toml"); err == nil {
+	if _, err := os.Stat("wstat.toml"); !errors.Is(err, os.ErrNotExist) {
 		return "wstat.toml"
 	}
 	return ""
@@ -87,23 +111,34 @@ func DataPath(name string) string {
 }
 
 // Load merges defaults, the user config and the project config.
-func Load() *Loaded {
-	l := &Loaded{
-		Config:   Default(),
-		UserPath: UserConfigPath(),
-	}
-	l.ProjectPath = ProjectConfigPath()
+func Load() *Loaded { return LoadWithPath("") }
 
-	if fc, err := loadFile(l.UserPath); err == nil {
-		overlay(&l.Config, fc, &l.Origins, l.UserPath)
-	}
-	if l.ProjectPath != "" {
-		if fc, err := loadFile(l.ProjectPath); err == nil {
-			overlay(&l.Config, fc, &l.Origins, l.ProjectPath)
+// LoadWithPath overlays an explicit path after project/user settings. Unlike
+// optional default files, a missing explicit file is an error.
+func LoadWithPath(explicit string) *Loaded {
+	l := &Loaded{Config: Default(), UserPath: UserConfigPath(), ProjectPath: ProjectConfigPath()}
+	read := func(path string, optional bool) {
+		fc, err := loadFile(path)
+		if err != nil {
+			if !optional || !errors.Is(err, os.ErrNotExist) {
+				l.Diagnostics = append(l.Diagnostics, Diagnostic{Path: path, Cause: err})
+			}
+			return
 		}
+		overlay(&l.Config, fc, &l.Origins, path)
+	}
+	read(l.UserPath, true)
+	if l.ProjectPath != "" {
+		read(l.ProjectPath, false)
+	}
+	if explicit != "" {
+		read(explicit, false)
 	}
 	return l
 }
+
+// ValidateFile checks an edited file independently of precedence overlays.
+func ValidateFile(path string) error { _, err := loadFile(path); return err }
 
 // fileConfig is a parsed config plus which keys were explicitly present
 // (so that `detect.enabled = false` from a file wins over the default).
@@ -114,6 +149,7 @@ type fileConfig struct {
 	hasPaths   bool
 	hasSeed    bool
 	hasVhost   bool
+	hasFPM     bool
 }
 
 func loadFile(path string) (*fileConfig, error) {
@@ -126,7 +162,7 @@ func loadFile(path string) (*fileConfig, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	fc := &fileConfig{}
-	if err := toml.Unmarshal(data, &fc.cfg); err != nil {
+	if err := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&fc.cfg); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if d, ok := raw["detect"]; ok {
@@ -138,17 +174,36 @@ func loadFile(path string) (*fileConfig, error) {
 		_, fc.hasSeed = s["seed_lines"]
 		_, fc.hasVhost = s["vhost"]
 	}
+	if d, ok := raw["fpm"]; ok {
+		_, fc.hasFPM = d["enabled"]
+	}
+	if fc.hasSeed && (fc.cfg.Source.SeedLines < 0 || fc.cfg.Source.SeedLines > 100000) {
+		return nil, fmt.Errorf("seed_lines must be between 0 and 100000")
+	}
+	for _, p := range fc.cfg.Source.Paths {
+		if p == "" {
+			return nil, fmt.Errorf("source.paths contains an empty path")
+		}
+		if _, err := filepath.Match(p, ""); err != nil {
+			return nil, fmt.Errorf("invalid source pattern %q: %w", p, err)
+		}
+	}
+	for p := range fc.cfg.Source.Vhost {
+		if _, err := filepath.Match(p, ""); err != nil {
+			return nil, fmt.Errorf("invalid vhost pattern %q: %w", p, err)
+		}
+	}
 	return fc, nil
 }
 
 // overlay applies explicitly-present fields from src onto dst, recording
 // origins. Later overlays (project) win per field.
 func overlay(dst *Config, src *fileConfig, o *Origins, origin string) {
-	if src.hasPaths && len(src.cfg.Source.Paths) > 0 {
+	if src.hasPaths {
 		dst.Source.Paths = src.cfg.Source.Paths
 		o.Paths = origin
 	}
-	if src.hasSeed && src.cfg.Source.SeedLines > 0 {
+	if src.hasSeed {
 		dst.Source.SeedLines = src.cfg.Source.SeedLines
 		o.SeedLine = origin
 	}
@@ -160,6 +215,10 @@ func overlay(dst *Config, src *fileConfig, o *Origins, origin string) {
 			dst.Source.Vhost[k] = v
 		}
 		o.Vhost = origin
+	}
+	if src.hasFPM {
+		dst.FPM.Enabled = src.cfg.FPM.Enabled
+		o.FPM = origin
 	}
 	if src.hasEnabled {
 		dst.Detect.Enabled = src.cfg.Detect.Enabled
@@ -190,6 +249,8 @@ func Save(path string, c Config) error {
 func SaveTemplate(path string) (existed bool, err error) {
 	if _, err := os.Stat(path); err == nil {
 		return true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
 	}
 	if err := Save(path, Default()); err != nil {
 		return false, err

@@ -1,6 +1,7 @@
 package fpm
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"strings"
@@ -52,20 +53,30 @@ type statusFull struct {
 // QueryStatus fetches the pool status over FastCGI (GET <statusPath>?json&full).
 // statusPath defaults to /status when the pool doesn't declare one.
 func QueryStatus(network, addr, statusPath string) (*Status, []Process, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	return queryStatusContext(ctx, network, addr, statusPath, true)
+}
+
+func queryStatusContext(ctx context.Context, network, addr, statusPath string, full bool) (*Status, []Process, error) {
 	if statusPath == "" {
 		statusPath = "/status"
+	}
+	query := "json"
+	if full {
+		query += "&full"
 	}
 	params := map[string]string{
 		"SCRIPT_NAME":     statusPath,
 		"SCRIPT_FILENAME": statusPath,
 		"REQUEST_METHOD":  "GET",
-		"REQUEST_URI":     statusPath + "?json&full",
-		"QUERY_STRING":    "json&full",
+		"REQUEST_URI":     statusPath + "?" + query,
+		"QUERY_STRING":    query,
 		"CONTENT_TYPE":    "text/plain",
 		"CONTENT_LENGTH":  "0",
 		"HTTP_HOST":       "localhost",
 	}
-	stdout, stderr, _, err := fcgiCall(network, addr, params, probeTimeout)
+	stdout, stderr, _, err := fcgiCallContext(ctx, network, addr, params)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -80,11 +91,11 @@ func QueryStatus(network, addr, statusPath string) (*Status, []Process, error) {
 		}
 		return nil, nil, &StatusError{Reason: msg}
 	}
-	var full statusFull
-	if err := json.Unmarshal(body, &full); err != nil {
+	var payload statusFull
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, nil, err
 	}
-	return &full.Status, full.Processes, nil
+	return &payload.Status, payload.Processes, nil
 }
 
 // extractJSON finds the JSON object inside a status response (which may be

@@ -3,13 +3,36 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.0-rc1] - 2026-10-09
-
-First release candidate: MVP dashboard, full filter layer, gz/rotated
-history replay, detection engine (`doctor` / `detect --json`), root
-package layout for `go install github.com/steamvogue/wstat@latest`.
-
 ## [Unreleased]
+
+## [0.1.1] - 2026-10-09
+
+Performance and monitoring-correctness fixes for all twelve findings in the
+project quality review. See [implementation evidence](docs/implementation/README.md)
+for measurements, test coverage and remaining validation limits.
+
+### Fixed
+
+- Select only displayed rows and cache unchanged snapshots; remove the forced
+  48 MiB Go memory limit and retire inactive rate counters.
+- Admit new URLs/clients at capacity with bounded LRU retention; cap hosts and
+  client/host associations, expose detail evictions and preserve selection on refresh.
+- Correct joint status/bot/static filters for counts, bytes, errors, rates and latency.
+- Retain descriptors across seed/follow and rename/recreate, preserve incomplete
+  lines, follow extensionless/empty paths and report bounded replay/read failures.
+- Count slowlogs incrementally with rotation handling; run cancellable bounded FPM
+  probes outside publication locks so stalled services do not freeze the dashboard.
+- Keep PHP service requests/memory separate from web totals; interpret configured
+  access units explicitly, fix `/proc` RSS units and malformed-field handling.
+- Reject invalid configuration, preserve explicit zero/false values, validate edits,
+  honor cache/FPM controls and vhost pins, and invalidate included-config dependencies.
+
+### Added
+
+- Opt-in CPU/heap profiles, deterministic snapshot benchmarks and an isolated PTY
+  workload sampler, with regression and bounded-retention checks.
+- Implementation evidence and accurate filter, rotation, memory and local-write docs.
+- Remove the unused third-party tailing dependency and its transitive dependencies.
 
 ## [0.1.0] - 2026-10-09
 
@@ -99,3 +122,9 @@ First stable release. Since 0.1.0-rc1: config lifecycle, detection cache,
   vhost name extraction.
 - vhost_combined lines with IP-literal vhosts (`127.0.0.1:80 ...`) now
   parse; IPv6 client addresses are still never mistaken for vhost prefixes.
+
+## [0.1.0-rc1] - 2026-10-09
+
+First release candidate: MVP dashboard, full filter layer, gz/rotated
+history replay, detection engine (`doctor` / `detect --json`), root
+package layout for `go install github.com/steamvogue/wstat@latest`.

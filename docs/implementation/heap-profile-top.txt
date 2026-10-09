@@ -1,0 +1,22 @@
+File: wstat-fixed
+Build ID: 1fc3864d3aec9ecf817b617d80f6f9c33917cd52
+Type: inuse_space
+Time: 2026-10-09 23:14:58 CEST
+Showing nodes accounting for 25229.75kB, 100% of 25229.75kB total
+Showing top 15 nodes out of 46
+      flat  flat%   sum%        cum   cum%
+17005.06kB 67.40% 67.40% 20077.34kB 79.58%  github.com/steamvogue/wstat/internal/store.(*Store).add
+ 3072.28kB 12.18% 79.58%  3072.28kB 12.18%  github.com/steamvogue/wstat/internal/store.(*agg).add
+ 2560.24kB 10.15% 89.73%  2560.24kB 10.15%  internal/stringslite.Clone
+ 1563.16kB  6.20% 95.92%  1563.16kB  6.20%  github.com/charmbracelet/ultraviolet.NewBuffer
+  516.01kB  2.05% 97.97%   516.01kB  2.05%  github.com/mattn/go-runewidth.makeWidthTable
+     513kB  2.03%   100%      513kB  2.03%  runtime.mallocgc
+         0     0%   100%  1563.16kB  6.20%  charm.land/bubbletea/v2.(*Program).Run
+         0     0%   100%   516.01kB  2.05%  charm.land/bubbletea/v2.(*Program).startRenderer.func1
+         0     0%   100%   516.01kB  2.05%  charm.land/bubbletea/v2.(*cursedRenderer).flush
+         0     0%   100%  1563.16kB  6.20%  charm.land/bubbletea/v2.newCursedRenderer
+         0     0%   100%   516.01kB  2.05%  github.com/charmbracelet/ultraviolet.(*StyledString).Draw
+         0     0%   100%  1563.16kB  6.20%  github.com/charmbracelet/ultraviolet.NewRenderBuffer (inline)
+         0     0%   100%  1563.16kB  6.20%  github.com/charmbracelet/ultraviolet.NewScreenBuffer (inline)
+         0     0%   100%   516.01kB  2.05%  github.com/charmbracelet/ultraviolet.printString[go.shape.string]
+         0     0%   100%   516.01kB  2.05%  github.com/charmbracelet/x/ansi.DecodeSequenceWc[go.shape.string]

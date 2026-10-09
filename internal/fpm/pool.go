@@ -130,7 +130,7 @@ func parseIntSafe(s string) int {
 // HasLatency reports whether the pool's access format logs request duration
 // (%d) — the requirement for latency columns.
 func (p Pool) HasLatency() bool {
-	return strings.Contains(p.AccessFormat, "%d") && p.AccessLog != ""
+	return (strings.Contains(p.AccessFormat, "%d") || strings.Contains(p.AccessFormat, "}d")) && p.AccessLog != ""
 }
 
 // CanDial reports whether the listen socket is connectable for the current

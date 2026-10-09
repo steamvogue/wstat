@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -162,9 +163,25 @@ func (m *Model) refresh() {
 	// Keep the stream pinned to the bottom unless frozen or scrolled up.
 	atBottom := !m.frozen && (len(m.stream) == 0 || m.sel[3] >= len(m.stream)-1)
 
+	var selected [3]string
+	for panel := 0; panel < 3; panel++ {
+		rows := m.filteredRows(panel)
+		if i := m.sel[panel]; i >= 0 && i < len(rows) {
+			selected[panel] = rows[i].Key
+		}
+	}
+
 	m.hosts, m.urls, m.clients, m.stream, m.tot, m.bad =
 		m.st.Snapshot(m.filters, m.sorts, 200)
 
+	for panel, key := range selected {
+		for i, r := range m.filteredRows(panel) {
+			if r.Key == key {
+				m.sel[panel] = i
+				break
+			}
+		}
+	}
 	if atBottom && len(m.stream) > 0 {
 		m.sel[3] = len(m.stream) - 1
 	}
@@ -172,9 +189,9 @@ func (m *Model) refresh() {
 }
 
 func (m *Model) clampSel() {
-	m.sel[0] = clamp(m.sel[0], 0, len(m.hosts)-1)
-	m.sel[1] = clamp(m.sel[1], 0, len(m.urls)-1)
-	m.sel[2] = clamp(m.sel[2], 0, len(m.clients)-1)
+	m.sel[0] = clamp(m.sel[0], 0, len(m.filteredRows(0))-1)
+	m.sel[1] = clamp(m.sel[1], 0, len(m.filteredRows(1))-1)
+	m.sel[2] = clamp(m.sel[2], 0, len(m.filteredRows(2))-1)
 	m.sel[3] = clamp(m.sel[3], 0, len(m.stream)-1)
 }
 
@@ -437,9 +454,10 @@ func (m Model) render() string {
 func (m Model) header() string {
 	var b strings.Builder
 	b.WriteString(styLogo.Render("wstat"))
+	b.WriteString(styDim.Render(" global"))
 	b.WriteByte(' ')
-	if len(m.hosts) > 0 {
-		b.WriteString(styLabel.Render(fmt.Sprintf("%d hosts", len(m.hosts))))
+	if m.tot.Reqs > 0 {
+		b.WriteString(styLabel.Render(fmt.Sprintf("%d tracked hosts", m.tot.TrackedHosts)))
 		b.WriteString(styDim.Render(" │ "))
 		b.WriteString(styAccent.Render(humanRate(m.tot.Rate)))
 		b.WriteString(styLabel.Render(" req/s"))
@@ -497,6 +515,15 @@ func (m Model) chips() []string {
 	if m.frozen {
 		chips = append(chips, "frozen")
 	}
+	if m.tot.HostEvicted+m.tot.URLEvicted+m.tot.ClientEvicted+m.tot.AssociationEvicted > 0 {
+		chips = append(chips, "partial detail: evicted")
+	}
+	if m.filters.Method != "" {
+		chips = append(chips, "method: URLs+stream")
+	}
+	if len(m.filters.Paths) > 0 || len(m.filters.Clients) > 0 {
+		chips = append(chips, "path/ip: stream")
+	}
 	if views := m.fpmSnapshot(); len(views) > 0 {
 		if ok, msg := fpm.AnyAlert(views); ok {
 			chips = append(chips, msg)
@@ -531,7 +558,11 @@ func strconvLen(set map[string]bool) string {
 func (m Model) footer() string {
 	keys := styLabel.Render("q quit · tab 1-4 focus · ⏎ zoom · / find · h host · c ip · p path · x status · m method · b bots · t static · s sort · f freeze · T theme · X clear")
 	live, replay := 0, 0
-	for _, s := range m.tailer.Sources() {
+	var sources []logsrc.Source
+	if m.tailer != nil {
+		sources = m.tailer.Sources()
+	}
+	for _, s := range sources {
 		if s.Replay {
 			replay++
 		} else {
@@ -922,8 +953,8 @@ func (m Model) fpmLines(w, viewH int) []string {
 			row = fmt.Sprintf("%s %-10s %-9s a:%d/%d %s slow:%d %s",
 				state, trunc(v.Name, 10), v.PMMode,
 				v.Status.ActiveProcesses, v.Status.TotalProcesses,
-				queue, v.Status.SlowRequests+v.SlowSeen,
-				styDim.Render("mem:"+humanBytes(v.RSSKB*1024)))
+				queue, v.Status.SlowRequests,
+				styDim.Render("est-mem:"+humanBytes(v.RSSKB*1024)))
 		} else {
 			detail := v.Err
 			if detail == "" {
@@ -935,12 +966,35 @@ func (m Model) fpmLines(w, viewH int) []string {
 			}
 			row = fmt.Sprintf("%s %-10s%s %s", state, trunc(v.Name, 10), wrk, styFaint.Render(trunc(detail, w-24)))
 		}
+		row += fmt.Sprintf(" log:%d slowlog:%d", v.Access.Requests, v.SlowSeen)
+		if v.Access.DurationCount > 0 {
+			row += " avg:" + humanLatency(v.Access.DurationUs/v.Access.DurationCount)
+		}
+		if v.Access.MemoryCount > 0 {
+			row += " req-mem:" + humanBytes(v.Access.MemoryBytes/v.Access.MemoryCount)
+		}
+		if v.Access.Bad > 0 {
+			row += fmt.Sprintf(" bad:%d", v.Access.Bad)
+		}
+		if v.AccessErr != "" {
+			row += " access:" + v.AccessErr
+		}
+		if v.SlowErr != "" {
+			row += " slowlog:" + v.SlowErr
+		}
+		if v.SlowLag {
+			row += " slowlog:catching-up"
+		}
 		out = append(out, row)
 	}
 	return out
 }
 
 func (m Model) sourceLines(w, viewH int) []string {
+	if m.tailer == nil {
+		return nil
+	}
+	diagnostics := m.tailer.Errors()
 	srcs := m.tailer.Sources()
 	var out []string
 	live, replay := 0, 0
@@ -952,6 +1006,9 @@ func (m Model) sourceLines(w, viewH int) []string {
 		}
 	}
 	out = append(out, styLabel.Render(fmt.Sprintf("live:%d replay:%d", live, replay)))
+	for _, path := range sortedStringKeys(diagnostics) {
+		out = append(out, styStatus4xx.Render(trunc(diagnostics[path], w)))
+	}
 	for _, s := range srcs {
 		if len(out) >= viewH {
 			break
@@ -1091,4 +1148,13 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func sortedStringKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

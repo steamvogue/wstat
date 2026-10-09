@@ -1,0 +1,27 @@
+goos: linux
+goarch: arm64
+pkg: github.com/steamvogue/wstat/internal/store
+BenchmarkAuditSnapshotCorpus
+    audit_test.go:33: sources=63 hosts=46 urls=20000 clients=11331 requests=53945
+BenchmarkAuditSnapshotCorpus/limit48MiB
+    audit_test.go:41: heap_alloc=29.1MiB runtime_memory=39.2MiB
+    audit_test.go:41: heap_alloc=34.7MiB runtime_memory=47.2MiB
+BenchmarkAuditSnapshotCorpus/limit48MiB-4         	      20	  14494788 ns/op	         0.5000 GC/op	 5873144 B/op	   20014 allocs/op
+    audit_test.go:41: heap_alloc=29.1MiB runtime_memory=39.3MiB
+    audit_test.go:41: heap_alloc=29.1MiB runtime_memory=45.6MiB
+BenchmarkAuditSnapshotCorpus/limit48MiB-4         	      20	  14333573 ns/op	         0.5000 GC/op	 5873144 B/op	   20014 allocs/op
+    audit_test.go:41: heap_alloc=29.1MiB runtime_memory=39.2MiB
+    audit_test.go:41: heap_alloc=34.7MiB runtime_memory=46.8MiB
+BenchmarkAuditSnapshotCorpus/limit48MiB-4         	      20	  14298090 ns/op	         0.4500 GC/op	 5873144 B/op	   20014 allocs/op
+BenchmarkAuditSnapshotCorpus/limit256MiB
+    audit_test.go:41: heap_alloc=29.1MiB runtime_memory=42.0MiB
+    audit_test.go:41: heap_alloc=34.7MiB runtime_memory=65.3MiB
+BenchmarkAuditSnapshotCorpus/limit256MiB-4        	      20	  13453819 ns/op	         0.2000 GC/op	 5873144 B/op	   20014 allocs/op
+    audit_test.go:41: heap_alloc=29.1MiB runtime_memory=46.1MiB
+    audit_test.go:41: heap_alloc=34.7MiB runtime_memory=66.8MiB
+BenchmarkAuditSnapshotCorpus/limit256MiB-4        	      20	  13026287 ns/op	         0.2000 GC/op	 5873144 B/op	   20014 allocs/op
+    audit_test.go:41: heap_alloc=29.1MiB runtime_memory=39.3MiB
+    audit_test.go:41: heap_alloc=40.3MiB runtime_memory=62.8MiB
+BenchmarkAuditSnapshotCorpus/limit256MiB-4        	      20	  13405668 ns/op	         0.2000 GC/op	 5873144 B/op	   20014 allocs/op
+PASS
+ok  	github.com/steamvogue/wstat/internal/store	2.078s

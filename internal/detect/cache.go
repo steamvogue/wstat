@@ -1,9 +1,13 @@
 package detect
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/steamvogue/wstat/internal/config"
@@ -23,9 +27,12 @@ type CacheKey struct {
 }
 
 type cacheEntry struct {
-	Key     CacheKey  `json:"key"`
-	SavedAt time.Time `json:"saved_at"`
-	Report  *Report   `json:"report"`
+	Key             CacheKey  `json:"key"`
+	SavedAt         time.Time `json:"saved_at"`
+	Report          *Report   `json:"report"`
+	Version         int       `json:"version"`
+	Files, Patterns []string
+	Dependencies    string `json:"dependencies"`
 }
 
 // CachePath returns the on-disk location of the detection cache.
@@ -59,19 +66,104 @@ func CacheKeyFor() CacheKey {
 // RunCached returns the host detection report, using the on-disk cache
 // when it is valid. force bypasses and refreshes the cache. The second
 // return value reports whether a valid cache was used.
-func RunCached(force bool) (*Report, bool) {
+const cacheVersion = 2
+const cacheTTL = 5 * time.Minute
+
+func RunCached(force bool) (*Report, bool) { return RunCachedWithOptions(force, true) }
+
+// A disabled cache performs neither reads nor writes. Force only bypasses
+// reads when caching is enabled; it never overrides the user's disable flag.
+func RunCachedWithOptions(force, enabled bool) (*Report, bool) {
+	if !enabled {
+		return Run(), false
+	}
 	cur := CacheKeyFor()
 	path := CachePath()
 	if !force {
-		if entry, ok := loadCacheEntry(path); ok && entry.Key == cur && entry.Report != nil {
+		if entry, ok := loadCacheEntry(path); ok && entry.Key == cur && validDependencies(entry) {
 			return entry.Report, true
 		}
 	}
 	rep := Run()
 	if rep != nil {
-		saveCacheEntry(path, &cacheEntry{Key: cur, SavedAt: time.Now(), Report: rep})
+		files, patterns := reportDependencies(rep)
+		deps, ok := dependencyFingerprint(files, patterns)
+		if ok {
+			saveCacheEntry(path, &cacheEntry{Key: cur, SavedAt: time.Now(), Report: rep, Version: cacheVersion, Files: files, Patterns: patterns, Dependencies: deps})
+		}
 	}
 	return rep, false
+}
+func reportDependencies(rep *Report) (files, patterns []string) {
+	for _, scan := range []*ScanResult{rep.Scan, rep.NginxScan} {
+		if scan != nil {
+			files = append(files, scan.Files...)
+			patterns = append(patterns, scan.IncludePatterns...)
+		}
+	}
+	return uniquePaths(files), uniquePaths(patterns)
+}
+func uniquePaths(paths []string) []string {
+	set := map[string]bool{}
+	for _, p := range paths {
+		set[p] = true
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+func dependencyFingerprint(files, patterns []string) (string, bool) {
+	if len(files) > 1024 || len(patterns) > 1024 {
+		return "", false
+	}
+	h := sha256.New()
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return "", false
+		}
+		_, _ = fmt.Fprintf(h, "pattern:%q\n", pattern)
+		for _, p := range matches {
+			_, _ = fmt.Fprintf(h, "match:%q\n", p)
+		}
+	}
+	for _, path := range files {
+		_, _ = fmt.Fprintf(h, "file:%q\n", path)
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			_, _ = fmt.Fprintf(h, "missing:%v\n", err)
+			continue
+		}
+		_, _ = fmt.Fprintf(h, "target:%q\n", target)
+		f, err := os.Open(path)
+		if err != nil {
+			_, _ = fmt.Fprintf(h, "unreadable:%v\n", err)
+			continue
+		}
+		fi, err := f.Stat()
+		if err != nil || !fi.Mode().IsRegular() {
+			_ = f.Close()
+			return "", false
+		}
+		_, _ = fmt.Fprintf(h, "metadata:%d:%d:%v\n", fi.ModTime().UnixNano(), fi.Size(), fi.Mode())
+		n, err := io.Copy(h, io.LimitReader(f, 1<<20+1))
+		_ = f.Close()
+		if err != nil || n > 1<<20 {
+			return "", false
+		}
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), true
+}
+func validDependencies(e *cacheEntry) bool {
+	age := time.Since(e.SavedAt)
+	if e.Version != cacheVersion || e.Report == nil || age < 0 || age > cacheTTL {
+		return false
+	}
+	deps, ok := dependencyFingerprint(e.Files, e.Patterns)
+	return ok && deps == e.Dependencies
 }
 
 // InvalidateCache removes the stored detection report.
@@ -85,7 +177,7 @@ func CacheStatus() string {
 	if !ok {
 		return "no cache (fresh probe each run)"
 	}
-	if entry.Key == CacheKeyFor() {
+	if entry.Key == CacheKeyFor() && validDependencies(entry) {
 		return "valid cache from " + entry.SavedAt.Format("2006-01-02 15:04") + " (used at startup)"
 	}
 	return "stale cache from " + entry.SavedAt.Format("2006-01-02 15:04") + " (will re-probe)"
@@ -111,5 +203,22 @@ func saveCacheEntry(path string, e *cacheEntry) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o644)
+	f, err := os.CreateTemp(filepath.Dir(path), ".detect-*.tmp")
+	if err != nil {
+		return
+	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	if err = f.Chmod(0o644); err != nil {
+		_ = f.Close()
+		return
+	}
+	if _, err = f.Write(data); err != nil {
+		_ = f.Close()
+		return
+	}
+	if err = f.Close(); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, path)
 }

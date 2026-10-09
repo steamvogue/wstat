@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -11,6 +12,7 @@ import (
 // fakeFCGIServer answers one FastCGI responder request with a canned body,
 // echoing back the received PARAMS for protocol assertions.
 type fakeFCGI struct {
+	mu       sync.Mutex
 	ln       net.Listener
 	received map[string]string
 	body     string
@@ -66,7 +68,9 @@ func (f *fakeFCGI) handle(conn net.Conn) {
 		}
 	}
 respond:
+	f.mu.Lock()
 	f.received = decodeParams(params)
+	f.mu.Unlock()
 	// The fake server intentionally ignores write errors: the client will
 	// surface them.
 	_ = writeRecord(conn, 1, fcgiStdout, []byte(f.body))
@@ -130,8 +134,11 @@ func TestFCGICallRoundtrip(t *testing.T) {
 		"SCRIPT_NAME":  "/status",
 		"QUERY_STRING": "json&full",
 	} {
-		if f.received[k] != want {
-			t.Errorf("param %s = %q, want %q", k, f.received[k], want)
+		f.mu.Lock()
+		got := f.received[k]
+		f.mu.Unlock()
+		if got != want {
+			t.Errorf("param %s = %q, want %q", k, got, want)
 		}
 	}
 }

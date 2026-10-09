@@ -1,0 +1,8 @@
+goos: linux
+goarch: arm64
+pkg: github.com/steamvogue/wstat/internal/fpm
+BenchmarkSlowlogIdle-4   	  491377	      2518 ns/op	     448 B/op	       3 allocs/op
+BenchmarkSlowlogIdle-4   	  497401	      2488 ns/op	     432 B/op	       3 allocs/op
+BenchmarkSlowlogIdle-4   	  505850	      2521 ns/op	     448 B/op	       3 allocs/op
+PASS
+ok  	github.com/steamvogue/wstat/internal/fpm	3.835s

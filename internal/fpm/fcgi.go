@@ -4,7 +4,9 @@ package fpm
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -25,7 +27,13 @@ const (
 // fcgiCall performs a minimal FastCGI responder request and returns the
 // collected stdout/stderr streams and the application status code.
 func fcgiCall(network, addr string, params map[string]string, timeout time.Duration) (stdout, stderr []byte, appStatus int, err error) {
-	conn, err := net.DialTimeout(network, addr, timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return fcgiCallContext(ctx, network, addr, params)
+}
+
+func fcgiCallContext(ctx context.Context, network, addr string, params map[string]string) (stdout, stderr []byte, appStatus int, err error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -33,7 +41,11 @@ func fcgiCall(network, addr string, params map[string]string, timeout time.Durat
 	if tc, ok := conn.(*net.TCPConn); ok {
 		_ = tc.SetKeepAlive(false)
 	}
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
 
 	reqID := uint16(1)
 	// BEGIN_REQUEST
@@ -81,6 +93,9 @@ func fcgiCall(network, addr string, params map[string]string, timeout time.Durat
 			if _, err := io.CopyN(io.Discard, conn, int64(paddingLen)); err != nil {
 				return out.Bytes(), errOut.Bytes(), 0, err
 			}
+		}
+		if out.Len()+errOut.Len()+contentLen > 4<<20 {
+			return nil, nil, 0, fmt.Errorf("fcgi response exceeds 4 MiB")
 		}
 		switch hdr[1] {
 		case fcgiStdout:

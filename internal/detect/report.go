@@ -41,6 +41,9 @@ func Run() *Report {
 			vars = ParseEnvvars(envvars)
 		}
 		rep.Scan = ScanApacheConfig(rep.Apache.ConfigFile, vars)
+		if p := EnvvarsFile(rep.Apache.ConfigRoot); p != "" {
+			rep.Scan.Files = append(rep.Scan.Files, p)
+		}
 		rep.Warnings = append(rep.Warnings, rep.Scan.Warnings...)
 		for p := range rep.Scan.VhostByLog {
 			candidates[p] = true
@@ -147,7 +150,7 @@ func (r *Report) Sources() []logsrc.Source {
 		out = append(out, logsrc.Source{
 			Path:   p.Path,
 			Vhost:  vhost,
-			Replay: !strings.HasSuffix(base, ".log"),
+			Replay: logsrc.IsReplay(base),
 		})
 	}
 	return out

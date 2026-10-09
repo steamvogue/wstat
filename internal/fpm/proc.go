@@ -25,7 +25,6 @@ func ReadProcStats() *ProcStats {
 	if err != nil {
 		return ps
 	}
-	const pageSize = 4096 // arm64/x86_64 default; close enough for display
 	for _, e := range entries {
 		if !e.IsDir() || !isDigits(e.Name()) {
 			continue
@@ -44,7 +43,7 @@ func ReadProcStats() *ProcStats {
 			}
 		}
 		if rss, cpu, ok := readProcStat(e.Name()); ok {
-			ps.RSSKB += rss / pageSize
+			ps.RSSKB += rss / 1024
 			ps.CPUTicks += cpu
 		}
 	}
@@ -77,19 +76,25 @@ func readProcStat(pid string) (rss int64, cpu int64, ok bool) {
 	if err != nil {
 		return 0, 0, false
 	}
-	s := string(data)
+	return parseProcStat(string(data))
+}
+
+func parseProcStat(s string) (rss, cpu int64, ok bool) {
 	// Skip the comm field, which may contain spaces inside parentheses.
 	if i := strings.LastIndexByte(s, ')'); i > 0 && i+2 < len(s) {
 		s = s[i+2:]
 	}
 	f := strings.Fields(s)
 	// Fields after the state: (11)utime (12)stime ... (22)rss
-	if len(f) < 21 {
+	if len(f) < 22 {
 		return 0, 0, false
 	}
-	utime, _ := strconv.ParseInt(f[11], 10, 64)
-	stime, _ := strconv.ParseInt(f[12], 10, 64)
-	rssPages, _ := strconv.ParseInt(f[21], 10, 64)
+	utime, e1 := strconv.ParseInt(f[11], 10, 64)
+	stime, e2 := strconv.ParseInt(f[12], 10, 64)
+	rssPages, e3 := strconv.ParseInt(f[21], 10, 64)
+	if e1 != nil || e2 != nil || e3 != nil || utime < 0 || stime < 0 || rssPages < 0 {
+		return 0, 0, false
+	}
 	return rssPages * int64(os.Getpagesize()), utime + stime, true
 }
 

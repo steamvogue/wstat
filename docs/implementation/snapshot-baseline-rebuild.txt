@@ -1,0 +1,8 @@
+goos: linux
+goarch: arm64
+pkg: github.com/steamvogue/wstat/internal/store
+BenchmarkSnapshotDecay-4   	      20	  27907001 ns/op	23381743 B/op	   20060 allocs/op
+BenchmarkSnapshotDecay-4   	      20	  29240572 ns/op	23381720 B/op	   20060 allocs/op
+BenchmarkSnapshotDecay-4   	      20	  25918459 ns/op	23381720 B/op	   20060 allocs/op
+PASS
+ok  	github.com/steamvogue/wstat/internal/store	2.467s

@@ -1,6 +1,9 @@
 package fpm
 
 import (
+	"fmt"
+	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -8,130 +11,263 @@ import (
 	"github.com/steamvogue/wstat/internal/parser"
 )
 
-// ParseAccess parses one php-fpm access.log line into a store record.
-// attribution is used as the record vhost (the pool name). php-fpm renders
-// %d as fractional seconds on PHP >= 8 (e.g. "0.002"); older builds logged
-// microseconds — both are handled by magnitude sanity.
-func ParseAccess(line string, attribution string) (parser.Record, bool) {
-	var r parser.Record
-	if len(line) == 0 {
-		return r, false
-	}
-	fields := splitAccessLine(line)
-	if len(fields) < 5 {
-		return r, false
-	}
-	r.Vhost = attribution
-	// %R: client IP first (may be "-").
-	r.IP = fields[0]
+// AccessRecord is a PHP service event. Request memory has its own unit and
+// cannot be passed to the web store as traffic bytes.
+type AccessRecord struct {
+	Pool, IP, Method, Path     string
+	Time                       time.Time
+	Status                     int
+	LatencyUs, MemoryBytes     int64
+	DurationKnown, MemoryKnown bool
+}
 
-	// Find the bracketed-or-bare timestamp: token matching dd/Mon/yyyy:hh:mm:ss +zzzz
-	ti := -1
-	for i, f := range fields {
-		if len(f) >= 20 && f[2] == '/' && f[6] == '/' && f[11] == ':' &&
-			i+1 < len(fields) && len(fields[i+1]) >= 5 &&
-			(fields[i+1][0] == '+' || fields[i+1][0] == '-') {
-			ti = i
-			break
+const DefaultAccessFormat = `%R - %u %t "%m %r" %s`
+const durationAccessFormat = DefaultAccessFormat + ` %d %M`
+
+type accessField struct {
+	name byte
+	unit string
+}
+type AccessParser struct {
+	re     *regexp.Regexp
+	fields []accessField
+}
+
+// NewAccessParser compiles the configured layout once, with explicit units.
+// Custom strftime timestamps and unknown placeholders are rejected rather than
+// interpreted as a different layout. See PHP's FPM configuration manual.
+func NewAccessParser(format string) (*AccessParser, error) {
+	if format == "" {
+		format = DefaultAccessFormat
+	}
+	if len(format) > 16384 {
+		return nil, fmt.Errorf("FPM access format exceeds 16 KiB")
+	}
+	var pattern strings.Builder
+	pattern.WriteByte('^')
+	var fields []accessField
+	for i := 0; i < len(format); {
+		if format[i] == ' ' || format[i] == '\t' {
+			for i < len(format) && (format[i] == ' ' || format[i] == '\t') {
+				i++
+			}
+			pattern.WriteString(`[ \t]+`)
+			continue
+		}
+		if format[i] != '%' {
+			pattern.WriteString(regexp.QuoteMeta(format[i : i+1]))
+			i++
+			continue
+		}
+		i++
+		if i >= len(format) {
+			return nil, fmt.Errorf("unfinished FPM placeholder")
+		}
+		if format[i] == '%' {
+			pattern.WriteByte('%')
+			i++
+			continue
+		}
+		unit := ""
+		if format[i] == '{' {
+			end := strings.IndexByte(format[i:], '}')
+			if end < 0 {
+				return nil, fmt.Errorf("unfinished FPM unit")
+			}
+			unit = format[i+1 : i+end]
+			i += end + 1
+		}
+		if i >= len(format) {
+			return nil, fmt.Errorf("unfinished FPM placeholder")
+		}
+		name := format[i]
+		i++
+		// Treat the standard URI/query sequence as one URI capture.
+		if name == 'r' && strings.HasPrefix(format[i:], "%Q%q") {
+			i += 4
+		}
+		if i < len(format) && format[i] == '%' && !strings.HasPrefix(format[i:], "%%") {
+			return nil, fmt.Errorf("adjacent FPM fields require a delimiter")
+		}
+		if unit != "" && name != 'd' && name != 'M' && name != 't' && name != 'T' {
+			return nil, fmt.Errorf("unit on FPM %%%c unsupported", name)
+		}
+		fragment := `.*?`
+		switch name {
+		case 't', 'T':
+			if unit != "" {
+				return nil, fmt.Errorf("custom FPM timestamp layouts are unsupported")
+			}
+			fragment = `[0-9]{2}/[A-Za-z]{3}/[0-9]{4}:[0-9]{2}:[0-9]{2}:[0-9]{2} [+-][0-9]{4}`
+		case 'd':
+			if _, ok := durationScale(unit); !ok {
+				return nil, fmt.Errorf("unsupported FPM duration unit %q", unit)
+			}
+			fragment = `[0-9]+(?:\.[0-9]+)?`
+		case 'M':
+			if _, ok := memoryScale(unit); !ok {
+				return nil, fmt.Errorf("unsupported FPM memory unit %q", unit)
+			}
+			fragment = `[0-9]+(?:\.[0-9]+)?`
+		case 's', 'p', 'P', 'l':
+			fragment = `[0-9]+`
+		case 'R', 'm', 'n':
+			fragment = `[^ \t]+`
+		case 'u', 'r', 'q', 'Q', 'f':
+			if unit != "" {
+				return nil, fmt.Errorf("unit on FPM %%%c unsupported", name)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported FPM placeholder %%%c", name)
+		}
+		fields = append(fields, accessField{name: name, unit: unit})
+		pattern.WriteByte('(')
+		pattern.WriteString(fragment)
+		pattern.WriteByte(')')
+	}
+	pattern.WriteByte('$')
+	re, err := regexp.Compile(pattern.String())
+	if err != nil {
+		return nil, err
+	}
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("FPM format has no fields")
+	}
+	return &AccessParser{re: re, fields: fields}, nil
+}
+
+// AccessParsers prevents ambiguous attribution of shared files and conflicting
+// layouts. Shared logs require %n to identify each request's pool.
+func AccessParsers(pools []Pool) (map[string]*AccessParser, map[string]string) {
+	groups := map[string][]Pool{}
+	for _, p := range pools {
+		if p.AccessLog != "" {
+			groups[p.AccessLog] = append(groups[p.AccessLog], p)
 		}
 	}
-	if ti < 0 {
-		return r, false
-	}
-	ts, ok := parser.ParseTimeToken(fields[ti] + " " + fields[ti+1])
-	if !ok {
-		return r, false
-	}
-	r.Time = ts
-
-	// Quoted request: "METHOD URI" spanning tokens 3..n-1 of the remainder.
-	q := ti + 2
-	if q >= len(fields) || !strings.HasPrefix(fields[q], "\"") {
-		return r, false
-	}
-	var reqTokens []string
-	for i := q; i < len(fields); i++ {
-		reqTokens = append(reqTokens, fields[i])
-		if strings.HasSuffix(fields[i], "\"") {
-			req := strings.Trim(strings.Join(reqTokens, " "), "\"")
-			r.Method, r.Path = parser.SplitRequestLine(req)
-			q = i + 1
-			break
-		}
-	}
-	if q >= len(fields) {
-		return r, false
-	}
-
-	// Status, then trailing numeric fields (%d duration, %M memory, …).
-	st, err := strconv.Atoi(fields[q])
-	if err != nil || st < 100 || st > 599 {
-		return r, false
-	}
-	r.Status = st
-	q++
-	var nums []float64
-	for ; q < len(fields); q++ {
-		f := strings.TrimSuffix(fields[q], "s")
-		v, err := strconv.ParseFloat(f, 64)
-		if err != nil {
-			// tolerate a unit-suffixed duration like "12ms"
-			if len(fields[q]) > 2 {
-				if v, err = strconv.ParseFloat(strings.TrimRight(fields[q], "msu"), 64); err != nil {
-					break
-				}
-			} else {
-				break
+	parsers := map[string]*AccessParser{}
+	diagnostics := map[string]string{}
+	for path, group := range groups {
+		format := group[0].AccessFormat
+		conflict := false
+		for _, p := range group {
+			if p.AccessFormat != format {
+				conflict = true
 			}
 		}
-		nums = append(nums, v)
+		if conflict {
+			diagnostics[path] = "shared FPM log has conflicting access formats"
+			continue
+		}
+		ap, err := NewAccessParser(format)
+		if err != nil {
+			diagnostics[path] = err.Error()
+			continue
+		}
+		if len(group) > 1 {
+			hasPool := false
+			for _, f := range ap.fields {
+				if f.name == 'n' {
+					hasPool = true
+				}
+			}
+			if !hasPool {
+				diagnostics[path] = "shared FPM log requires %n for pool attribution"
+				continue
+			}
+		}
+		parsers[path] = ap
 	}
-	if len(nums) >= 1 {
-		r.LatencyUs = normalizeDurationToUs(nums[0])
+	return parsers, diagnostics
+}
+func durationScale(unit string) (float64, bool) {
+	switch unit {
+	case "", "seconds":
+		return 1e6, true
+	case "milliseconds", "milli":
+		return 1000, true
+	case "microseconds", "micro":
+		return 1, true
 	}
-	if len(nums) >= 2 && nums[1] > 0 && nums[1] < 1<<32 {
-		r.Bytes = int64(nums[1]) // %M: last-request memory footprint in bytes
+	return 0, false
+}
+func memoryScale(unit string) (float64, bool) {
+	switch unit {
+	case "", "bytes":
+		return 1, true
+	case "kilobytes", "kilo":
+		return 1024, true
+	case "megabytes", "mega":
+		return 1048576, true
+	}
+	return 0, false
+}
+func scaledNumber(text string, scale float64) (int64, bool) {
+	v, err := strconv.ParseFloat(text, 64)
+	v *= scale
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v >= float64(math.MaxInt64) {
+		return 0, false
+	}
+	return int64(math.Round(v)), true
+}
+func (p *AccessParser) Parse(line, pool string) (AccessRecord, bool) {
+	r := AccessRecord{Pool: pool}
+	parts := p.re.FindStringSubmatch(line)
+	if parts == nil {
+		return r, false
+	}
+	for i, f := range p.fields {
+		text := parts[i+1]
+		switch f.name {
+		case 'R':
+			r.IP = text
+		case 'n':
+			r.Pool = text
+		case 'm':
+			r.Method = text
+		case 'r':
+			r.Path = text
+			if j := strings.IndexByte(r.Path, '?'); j >= 0 {
+				r.Path = r.Path[:j]
+			}
+		case 't', 'T':
+			v, ok := parser.ParseTimeToken(text)
+			if !ok {
+				return r, false
+			}
+			r.Time = v
+		case 's':
+			v, err := strconv.Atoi(text)
+			if err != nil || v < 100 || v > 599 {
+				return r, false
+			}
+			r.Status = v
+		case 'd':
+			scale, _ := durationScale(f.unit)
+			v, ok := scaledNumber(text, scale)
+			if !ok {
+				return r, false
+			}
+			r.LatencyUs = v
+			r.DurationKnown = true
+		case 'M':
+			scale, _ := memoryScale(f.unit)
+			v, ok := scaledNumber(text, scale)
+			if !ok {
+				return r, false
+			}
+			r.MemoryBytes = v
+			r.MemoryKnown = true
+		}
 	}
 	return r, true
 }
 
-// normalizeDurationToUs maps php-fpm %d renderings to microseconds: PHP >= 8
-// logs fractional seconds ("0.002"), older builds logged microseconds
-// ("2000"). Values below 10 are treated as seconds.
-func normalizeDurationToUs(v float64) int64 {
-	if v > 0 && v < 10 {
-		return int64(v * 1e6)
-	}
-	return int64(v)
-}
-
-// splitAccessLine splits on spaces, honoring double quotes.
-func splitAccessLine(line string) []string {
-	var out []string
-	var cur strings.Builder
-	inQuote := false
-	for i := 0; i < len(line); i++ {
-		c := line[i]
-		switch {
-		case c == '"':
-			inQuote = !inQuote
-			cur.WriteByte(c)
-		case c == '\\' && i+1 < len(line) && inQuote:
-			cur.WriteByte(line[i+1])
-			i++
-		case (c == ' ' || c == '\t') && !inQuote:
-			if cur.Len() > 0 {
-				out = append(out, cur.String())
-				cur.Reset()
-			}
-		default:
-			cur.WriteByte(c)
-		}
-	}
-	if cur.Len() > 0 {
-		out = append(out, cur.String())
-	}
-	return out
+// ParseAccess is the conventional layout helper. Runtime ingestion always
+// uses NewAccessParser(pool.AccessFormat), so it never guesses units/layouts.
+func ParseAccess(line, pool string) (AccessRecord, bool) {
+	p, _ := NewAccessParser(durationAccessFormat)
+	return p.Parse(line, pool)
 }
 
 // SlowlogEntry is one parsed slowlog block (timestamp + pool + stack head).

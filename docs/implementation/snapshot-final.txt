@@ -1,0 +1,14 @@
+goos: linux
+goarch: arm64
+pkg: github.com/steamvogue/wstat/internal/store
+BenchmarkSnapshot/limit48MiB-4         	 7336944	       171.8 ns/op	         0 GC/op	       0 B/op	       0 allocs/op
+BenchmarkSnapshot/limit48MiB-4         	 7232907	       165.3 ns/op	         0 GC/op	       0 B/op	       0 allocs/op
+BenchmarkSnapshot/limit48MiB-4         	 7212604	       163.5 ns/op	         0 GC/op	       0 B/op	       0 allocs/op
+BenchmarkSnapshot/limit256MiB-4        	 7229320	       170.6 ns/op	         0 GC/op	       0 B/op	       0 allocs/op
+BenchmarkSnapshot/limit256MiB-4        	 7207743	       163.0 ns/op	         0 GC/op	       0 B/op	       0 allocs/op
+BenchmarkSnapshot/limit256MiB-4        	 7371398	       170.8 ns/op	         0 GC/op	       0 B/op	       0 allocs/op
+BenchmarkSnapshotDecay-4               	     140	   8438295 ns/op	  107320 B/op	     215 allocs/op
+BenchmarkSnapshotDecay-4               	     139	   8262498 ns/op	  107320 B/op	     215 allocs/op
+BenchmarkSnapshotDecay-4               	     141	   8208659 ns/op	  107320 B/op	     215 allocs/op
+PASS
+ok  	github.com/steamvogue/wstat/internal/store	17.463s

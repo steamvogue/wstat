@@ -103,12 +103,12 @@ func TestParseAccessRealLines(t *testing.T) {
 		if r.IP != c.ip || r.Method != c.method || r.Path != c.path {
 			t.Errorf("line %q -> ip=%s method=%s path=%s", c.line, r.IP, r.Method, r.Path)
 		}
-		if r.Status != c.status || r.LatencyUs != c.latUs || r.Bytes != c.mem {
+		if r.Status != c.status || r.LatencyUs != c.latUs || r.MemoryBytes != c.mem {
 			t.Errorf("line %q -> status=%d lat=%d mem=%d (want %d/%d/%d)",
-				c.line, r.Status, r.LatencyUs, r.Bytes, c.status, c.latUs, c.mem)
+				c.line, r.Status, r.LatencyUs, r.MemoryBytes, c.status, c.latUs, c.mem)
 		}
-		if r.Vhost != "e2e" {
-			t.Errorf("attribution = %q", r.Vhost)
+		if r.Pool != "e2e" {
+			t.Errorf("attribution = %q", r.Pool)
 		}
 		if r.Time.Year() != 2026 {
 			t.Errorf("time = %v", r.Time)
@@ -128,17 +128,52 @@ func TestParseAccessRejectsGarbage(t *testing.T) {
 	}
 }
 
-func TestNormalizeDuration(t *testing.T) {
-	cases := map[float64]int64{
-		0.002:  2000,    // PHP >= 8 fractional seconds
-		1.5:    1500000, // seconds
-		2000:   2000,    // legacy microseconds
-		150000: 150000,  // legacy microseconds
-	}
-	for in, want := range cases {
-		if got := normalizeDurationToUs(in); got != want {
-			t.Errorf("normalize(%v) = %d, want %d", in, got, want)
+func TestAccessUnitsAndLongDurations(t *testing.T) {
+	for _, c := range []struct {
+		format, line string
+		us, mem      int64
+	}{
+		{`%d %M`, `15 2048`, 15000000, 2048},
+		{`%{milliseconds}d %{kilobytes}M`, `15 2048`, 15000, 2097152},
+		{`%{microseconds}d %{megabytes}M`, `15 2`, 15, 2097152},
+	} {
+		p, err := NewAccessParser(c.format)
+		if err != nil {
+			t.Fatal(err)
 		}
+		r, ok := p.Parse(c.line, "test")
+		if !ok || r.LatencyUs != c.us || r.MemoryBytes != c.mem {
+			t.Fatal(r, ok)
+		}
+	}
+	if _, err := NewAccessParser(`%{unexpected}d`); err == nil {
+		t.Fatal("unsupported units accepted")
+	}
+}
+
+func TestConfiguredAccessLayoutAndSharedAttribution(t *testing.T) {
+	p, err := NewAccessParser(`%n %s "%m %r%Q%q" %{milliseconds}d %M`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := p.Parse(`www 200 "GET /page?x=1" 12000 2097152`, "fallback")
+	if !ok || r.Pool != "www" || r.Path != "/page" || r.LatencyUs != 12000000 || r.MemoryBytes != 2097152 {
+		t.Fatal(r, ok)
+	}
+	if _, err = NewAccessParser(`%d%M`); err == nil {
+		t.Fatal("ambiguous fields accepted")
+	}
+	pools := []Pool{{Name: "a", AccessLog: "shared", AccessFormat: `%s %d`}, {Name: "b", AccessLog: "shared", AccessFormat: `%s %d`}}
+	parsers, errors := AccessParsers(pools)
+	if parsers["shared"] != nil || errors["shared"] == "" {
+		t.Fatal("shared log attribution guessed")
+	}
+	for i := range pools {
+		pools[i].AccessFormat = `%n %s %d`
+	}
+	parsers, errors = AccessParsers(pools)
+	if parsers["shared"] == nil || errors["shared"] != "" {
+		t.Fatal("explicit shared attribution rejected")
 	}
 }
 

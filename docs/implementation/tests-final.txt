@@ -1,0 +1,10 @@
+ok  	github.com/steamvogue/wstat	0.371s	coverage: 37.1% of statements
+ok  	github.com/steamvogue/wstat/internal/config	0.031s	coverage: 87.9% of statements
+ok  	github.com/steamvogue/wstat/internal/detect	1.380s	coverage: 83.1% of statements
+ok  	github.com/steamvogue/wstat/internal/filetail	0.023s	coverage: 81.4% of statements
+ok  	github.com/steamvogue/wstat/internal/fpm	0.027s	coverage: 64.9% of statements
+ok  	github.com/steamvogue/wstat/internal/logsrc	5.290s	coverage: 81.5% of statements
+ok  	github.com/steamvogue/wstat/internal/parser	1.867s	coverage: 85.7% of statements
+ok  	github.com/steamvogue/wstat/internal/store	1.512s	coverage: 97.2% of statements
+ok  	github.com/steamvogue/wstat/internal/ui	0.031s	coverage: 74.5% of statements
+ok  	github.com/steamvogue/wstat/internal/wizard	0.007s	coverage: 94.5% of statements

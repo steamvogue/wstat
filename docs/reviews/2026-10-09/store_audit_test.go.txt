@@ -1,0 +1,88 @@
+package store
+
+import (
+	"fmt"
+	"github.com/steamvogue/wstat/internal/logsrc"
+	"github.com/steamvogue/wstat/internal/parser"
+	"runtime"
+	"runtime/debug"
+	"testing"
+	"time"
+)
+
+func TestAuditEviction(t *testing.T) {
+	s := New()
+	for i := 0; i < maxKeys; i++ {
+		s.AddSeed(rec("a", fmt.Sprint(i), "GET", fmt.Sprintf("/%d", i), 200, 1))
+	}
+	for _, v := range s.urls {
+		v.last = time.Now().Add(-3 * time.Minute)
+	}
+	for _, v := range s.clients {
+		v.last = time.Now().Add(-3 * time.Minute)
+	}
+	s.evictLocked(time.Now())
+	s.Add(rec("a", "new-client", "GET", "/new-url", 200, 1))
+	if s.urls["a\x00GET\x00/new-url"] == nil && s.clients["new-client"] == nil {
+		t.Log("CONFIRMED: full maps never evict stale keys and reject new rows")
+	} else {
+		t.Fatal("not reproduced")
+	}
+}
+func TestAuditCombinedFilters(t *testing.T) {
+	s := New()
+	s.Add(botRec("a", "a", "GET", "/", 200, 1))
+	s.Add(rec("a", "b", "GET", "/", 500, 1))
+	h, _, _, stream, _, _ := s.Snapshot(Filters{Mask: MaskErr, Bots: 1}, [3]SortKey{}, 200)
+	if h[0].Hits == 1 && len(stream) == 0 {
+		t.Log("CONFIRMED: error+bot filter shows 1 host hit although exact matching stream is empty")
+	} else {
+		t.Fatal("not reproduced")
+	}
+}
+func BenchmarkAuditSnapshotCorpus(b *testing.B) {
+	sources := logsrc.Discover([]string{"../../samples/*access*"}, nil)
+	for i := range sources {
+		sources[i].Replay = true
+	}
+	s := New()
+	tr := logsrc.Start(sources, nil, 1000, nil)
+	// Replay workers disappear from Sources when finished; drain until then.
+	done := make(chan struct{})
+	go func() {
+		for line := range tr.Ch {
+			r, ok := parseAudit(line)
+			if ok {
+				s.AddSeed(r)
+			}
+		}
+		close(done)
+	}()
+	for len(tr.Sources()) > 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	tr.Stop()
+	<-done
+	b.Logf("sources=%d hosts=%d urls=%d clients=%d requests=%d", len(sources), len(s.hosts), len(s.urls), len(s.clients), s.tot.reqs)
+	for _, mib := range []int64{48, 256} {
+		b.Run(fmt.Sprintf("limit%dMiB", mib), func(b *testing.B) {
+			old := debug.SetMemoryLimit(mib << 20)
+			defer debug.SetMemoryLimit(old)
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				s.Snapshot(Filters{}, [3]SortKey{}, 200)
+			}
+			b.StopTimer()
+			runtime.ReadMemStats(&after)
+			b.ReportMetric(float64(after.NumGC-before.NumGC)/float64(b.N), "GC/op")
+			b.Logf("heap_alloc=%.1fMiB runtime_memory=%.1fMiB", float64(after.HeapAlloc)/(1<<20), float64(after.Sys-after.HeapReleased)/(1<<20))
+		})
+	}
+	runtime.KeepAlive(s)
+}
+
+func parseAudit(l logsrc.RawLine) (parser.Record, bool) { return parser.Parse(l.Text, l.Source.Vhost) }

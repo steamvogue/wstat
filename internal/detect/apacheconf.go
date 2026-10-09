@@ -24,13 +24,15 @@ type VhostBlock struct {
 
 // ScanResult is the outcome of scanning a web server configuration tree.
 type ScanResult struct {
-	LogFormats  map[string]string `json:"log_formats"` // nickname -> format string
-	Vhosts      []VhostBlock      `json:"vhosts"`
-	GlobalLogs  []LogRef          `json:"global_logs"`
-	ErrorLogs   []string          `json:"error_logs"`
-	VhostByLog  map[string]string `json:"vhost_by_log"`  // abs log path -> ServerName
-	FormatByLog map[string]string `json:"format_by_log"` // abs log path -> nickname
-	Warnings    []string          `json:"warnings"`
+	LogFormats      map[string]string `json:"log_formats"` // nickname -> format string
+	Vhosts          []VhostBlock      `json:"vhosts"`
+	GlobalLogs      []LogRef          `json:"global_logs"`
+	ErrorLogs       []string          `json:"error_logs"`
+	VhostByLog      map[string]string `json:"vhost_by_log"`  // abs log path -> ServerName
+	FormatByLog     map[string]string `json:"format_by_log"` // abs log path -> nickname
+	Warnings        []string          `json:"warnings"`
+	Files           []string          `json:"files"`
+	IncludePatterns []string          `json:"include_patterns"`
 }
 
 const (
@@ -91,6 +93,7 @@ func (s *scanner) scanFile(path string, depth int) {
 		return
 	}
 	s.filesScanned++
+	s.res.Files = append(s.res.Files, path)
 	f, err := os.Open(path)
 	if err != nil {
 		s.warn("cannot read " + path)
@@ -154,6 +157,7 @@ func (s *scanner) scanLine(line string, depth int) {
 			return
 		}
 		pattern := s.abs(tokens[1])
+		s.res.IncludePatterns = append(s.res.IncludePatterns, pattern)
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
 			s.warn("bad include pattern " + pattern)

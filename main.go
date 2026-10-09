@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime/debug"
+	"runtime"
 	"strings"
 	"time"
 
@@ -16,7 +16,6 @@ import (
 	"github.com/steamvogue/wstat/internal/detect"
 	"github.com/steamvogue/wstat/internal/fpm"
 	"github.com/steamvogue/wstat/internal/logsrc"
-	"github.com/steamvogue/wstat/internal/parser"
 	"github.com/steamvogue/wstat/internal/store"
 	"github.com/steamvogue/wstat/internal/ui"
 	"github.com/steamvogue/wstat/internal/wizard"
@@ -25,45 +24,74 @@ import (
 // version is set at build time via -ldflags "-X main.version=…".
 var version = "dev"
 
-func main() {
-	// Keep the dashboard's memory footprint bounded even under big seed
-	// replays and bot-heavy unique-path storms.
-	debug.SetMemoryLimit(48 << 20)
+func main() { os.Exit(run()) }
 
+func run() (code int) {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "doctor":
 			fmt.Print(runDoctor())
-			return
+			return 0
 		case "detect":
 			runDetect(os.Args[2:])
-			return
+			return 0
 		case "config":
 			runConfig(os.Args[2:])
-			return
+			return 0
 		case "init":
 			runInit(os.Args[2:])
-			return
+			return 0
 		case "version":
 			fmt.Printf("wstat %s\n", version)
-			return
+			return 0
 		}
 	}
 
-	seedN := flag.Int("n", 0, "lines to seed per file on startup (overrides config)")
+	seedN := flag.Int("n", 0, "lines to seed per file on startup; 0 skips history (overrides config)")
+	configPath := flag.String("config", "", "explicit config file overlay")
+	fpmEnabled := flag.Bool("fpm", true, "enable PHP-FPM discovery/probes/logs (overrides config)")
 	redetect := flag.Bool("redetect", false, "force a fresh host detection, ignoring the cache")
+	cpuPath := flag.String("cpuprofile", "", "write local CPU profile to this file (opt-in)")
+	profileAfter := flag.Duration("profile-after", 0, "delay CPU profiling to exclude startup (e.g. 3s)")
+	heapPath := flag.String("heapprofile", "", "write retained heap profile on shutdown (opt-in)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("wstat %s\n", version)
-		return
+		return 0
 	}
 
-	loaded := config.Load()
+	cleanup, err := startProfiles(*cpuPath, *heapPath, *profileAfter)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wstat:", err)
+		return 1
+	}
+	var profileStore *store.Store
+	defer func() {
+		if err := cleanup(); err != nil {
+			fmt.Fprintln(os.Stderr, "wstat:", err)
+			code = 1
+		}
+		runtime.KeepAlive(profileStore)
+	}()
+	loaded := config.LoadWithPath(*configPath)
+	if err := loaded.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "wstat config:", err)
+		return 1
+	}
 	cfg := loaded.Config
 	seed := cfg.Source.SeedLines
-	if *seedN > 0 {
-		seed = *seedN
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "n":
+			seed = *seedN
+		case "fpm":
+			cfg.FPM.Enabled = *fpmEnabled
+		}
+	})
+	if seed < 0 || seed > 100000 {
+		fmt.Fprintln(os.Stderr, "wstat: -n must be between 0 and 100000")
+		return 2
 	}
 
 	globs := flag.Args()
@@ -82,7 +110,7 @@ func main() {
 		rescanGlobs = cfg.Source.Paths
 		vhostMap = cfg.Source.Vhost
 	case cfg.Detect.Enabled:
-		rep, _ := detect.RunCached(*redetect || !cfg.Detect.Cache)
+		rep, _ := detect.RunCachedWithOptions(*redetect, cfg.Detect.Cache)
 		sources = rep.Sources()
 		vhostMap = rep.VhostMap()
 		// Config vhost pins override detection attribution.
@@ -90,61 +118,102 @@ func main() {
 			vhostMap[k] = v
 		}
 	default:
-		sources = logsrc.Discover(nil, nil)
+		sources = logsrc.Discover(nil, cfg.Source.Vhost)
 	}
 
+	if vhostMap == nil {
+		vhostMap = map[string]string{}
+	}
+	for k, v := range cfg.Source.Vhost {
+		vhostMap[k] = v
+	}
+	for path := range vhostMap {
+		if v := logsrc.MatchVhostPin(cfg.Source.Vhost, path); v != "" {
+			vhostMap[path] = v
+		}
+	}
+	for i := range sources {
+		if v := logsrc.MatchVhostPin(cfg.Source.Vhost, sources[i].Path); v != "" {
+			sources[i].Vhost = v
+		}
+	}
+	if len(globs) == 0 && len(cfg.Source.Paths) == 0 {
+		rescanGlobs = append(append([]string(nil), rescanGlobs...), pinPaths(cfg.Source.Vhost)...)
+	}
+	existing := map[string]bool{}
+	for _, src := range sources {
+		existing[src.Path] = true
+	}
+	var pinned []logsrc.Source
+	if len(globs) == 0 && len(cfg.Source.Paths) == 0 && len(cfg.Source.Vhost) > 0 {
+		pinned = logsrc.Discover(pinPaths(cfg.Source.Vhost), vhostMap)
+	}
+	for _, src := range pinned {
+		if len(cfg.Source.Vhost) > 0 && !existing[src.Path] {
+			sources = append(sources, src)
+			existing[src.Path] = true
+		}
+	}
 	if len(sources) == 0 {
 		fmt.Fprintln(os.Stderr, "wstat: no access logs found")
 		fmt.Fprintf(os.Stderr, "  searched: %s\n", strings.Join(rescanGlobs, " "))
 		fmt.Fprintln(os.Stderr, "run `wstat doctor` to see what was detected on this host")
 		fmt.Fprintln(os.Stderr, "usage: wstat [glob ...]   e.g. wstat '/var/log/apache2/*-access.log'")
-		os.Exit(1)
+		return 1
 	}
 
-	// php-fpm: pools with access logs that record durations become extra
-	// sources (vhost attribution = pool name); the poller feeds the
-	// Services view.
-	fpmPools := fpm.DiscoverPools()
+	// Each source has a single metric owner. FPM events stay in Services.
+	var fpmPools []fpm.Pool
+	if cfg.FPM.Enabled {
+		fpmPools = fpm.DiscoverPools()
+	}
+	router := newIngestionRouter()
+	var serviceDiagnostics map[string]string
+	router.services, serviceDiagnostics = fpm.AccessParsers(fpmPools)
+	for _, path := range sortedKeys(serviceDiagnostics) {
+		fmt.Fprintf(os.Stderr, "wstat: FPM %s: %s\n", path, serviceDiagnostics[path])
+	}
 	for _, pool := range fpmPools {
-		if pool.HasLatency() && fileExists(pool.AccessLog) {
-			sources = append(sources, logsrc.Source{Path: pool.AccessLog, Vhost: pool.Name})
+		if pool.AccessLog == "" {
+			continue
 		}
-	}
-	var fpmViews func() []fpm.PoolView
-	var fpmPoller *fpm.Poller
-	if len(fpmPools) > 0 {
-		fpmPoller = fpm.NewPoller(fpmPools, 2*time.Second)
-		defer fpmPoller.Stop()
-		poller := fpmPoller
-		fpmViews = poller.Views
+		service := logsrc.Source{Path: pool.AccessLog, Vhost: pool.Name, Kind: logsrc.FPM, Format: pool.AccessFormat}
+		found := false
+		for i := range sources {
+			if sources[i].Path == pool.AccessLog {
+				sources[i] = service
+				found = true
+			}
+		}
+		if !found {
+			sources = append(sources, service)
+		}
+
 	}
 
+	var fpmViews func() []fpm.PoolView
+	if len(fpmPools) > 0 {
+		router.poller = fpm.NewPoller(fpmPools, 2*time.Second)
+		defer router.poller.Stop()
+		fpmViews = router.poller.Views
+	}
 	tailer := logsrc.Start(sources, rescanGlobs, seed, vhostMap)
 	st := store.New()
+	profileStore = st
+	drained := make(chan struct{})
 	go func() {
+		defer close(drained)
 		for line := range tailer.Ch {
-			r, ok := parser.Parse(line.Text, line.Source.Vhost)
-			if !ok {
-				// php-fpm access.log lines (no brackets around the time).
-				r, ok = fpm.ParseAccess(line.Text, line.Source.Vhost)
-			}
-			if !ok {
-				st.AddBad()
-				continue
-			}
-			if line.Seeded {
-				st.AddSeed(r)
-			} else {
-				st.Add(r)
-			}
+			router.ingest(st, line)
 		}
 	}()
+	defer func() { tailer.Stop(); <-drained }()
 
 	if _, err := tea.NewProgram(ui.New(st, tailer, fpmViews)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "wstat:", err)
-		os.Exit(1)
+		return 1
 	}
-	tailer.Stop()
+	return 0
 }
 
 func runDetect(args []string) {
@@ -155,7 +224,8 @@ func runDetect(args []string) {
 		fmt.Fprintln(os.Stderr, "wstat detect:", err)
 		os.Exit(2)
 	}
-	rep, _ := detect.RunCached(*force)
+	cfg := loadCommandConfig()
+	rep, _ := detect.RunCachedWithOptions(*force, cfg.Detect.Cache)
 	if *asJSON {
 		fmt.Println(rep.JSON())
 		return
@@ -164,9 +234,12 @@ func runDetect(args []string) {
 }
 
 func runDoctor() string {
+	cfg := loadCommandConfig()
 	text := detect.Run().Doctor()
-	text += fpm.DoctorText(fpm.DiscoverPools())
-	text += "detection:   " + detect.CacheStatus() + "\n"
+	if cfg.FPM.Enabled {
+		text += fpm.DoctorText(fpm.DiscoverPools())
+	}
+	text += "detection:   " + cacheStatus(cfg) + "\n"
 	return text
 }
 
@@ -179,8 +252,8 @@ func runConfig(args []string) {
 	case "show":
 		configShow()
 	case "redetect":
-		detect.InvalidateCache()
-		rep, _ := detect.RunCached(true)
+		cfg := loadCommandConfig()
+		rep, _ := detect.RunCachedWithOptions(true, cfg.Detect.Cache)
 		live, replay := 0, 0
 		for _, s := range rep.Sources() {
 			if s.Replay {
@@ -189,7 +262,11 @@ func runConfig(args []string) {
 				live++
 			}
 		}
-		fmt.Printf("detection cache refreshed: %d live + %d replay sources\n", live, replay)
+		label := "detection cache refreshed"
+		if !cfg.Detect.Cache {
+			label = "detection refreshed (cache disabled)"
+		}
+		fmt.Printf("%s: %d live + %d replay sources\n", label, live, replay)
 	case "edit":
 		configEdit()
 	default:
@@ -200,6 +277,10 @@ func runConfig(args []string) {
 
 func configShow() {
 	loaded := config.Load()
+	if err := loaded.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "wstat config:", err)
+		os.Exit(1)
+	}
 	fmt.Printf("# effective configuration\n")
 	fmt.Printf("# user config:    %s\n", loaded.UserPath)
 	if loaded.ProjectPath != "" {
@@ -207,7 +288,7 @@ func configShow() {
 	} else {
 		fmt.Println("# project config: none (./wstat.toml)")
 	}
-	fmt.Printf("# detection:      %s\n", detect.CacheStatus())
+	fmt.Printf("# detection:      %s\n", cacheStatus(loaded.Config))
 	fmt.Println()
 	fmt.Print(configTOML(loaded))
 }
@@ -239,6 +320,7 @@ func configTOML(l *config.Loaded) string {
 	}
 	fmt.Fprintf(&b, "\n[detect] #%s\n", origin(l.Origins.Detect))
 	fmt.Fprintf(&b, "enabled = %v\ncache = %v\n", l.Config.Detect.Enabled, l.Config.Detect.Cache)
+	fmt.Fprintf(&b, "\n[fpm] #%s\nenabled = %v\n", origin(l.Origins.FPM), l.Config.FPM.Enabled)
 	return b.String()
 }
 
@@ -277,16 +359,20 @@ func configEdit() {
 	}
 	// Validate the result so mistakes surface immediately.
 	if _, err := os.Stat(path); err != nil {
-		return
+		fmt.Fprintln(os.Stderr, "wstat config edit:", err)
+		os.Exit(1)
 	}
-	if l := config.Load(); l.UserPath == path {
-		fmt.Println("config saved:", path)
+	if err := config.ValidateFile(path); err != nil {
+		fmt.Fprintln(os.Stderr, "wstat config edit:", err)
+		os.Exit(1)
 	}
+	fmt.Println("config saved:", path)
 }
 
 func runInit(args []string) {
 	force := len(args) > 0 && args[0] == "--redetect"
-	rep, _ := detect.RunCached(force)
+	cfg := loadCommandConfig()
+	rep, _ := detect.RunCachedWithOptions(force, cfg.Detect.Cache)
 	live := 0
 	items := make([]wizard.Item, 0)
 	for _, s := range rep.Sources() {
@@ -327,7 +413,7 @@ func pinFor(rep *detect.Report, path string) string {
 }
 
 func writeInitConfig(items []wizard.Item) {
-	var cfg config.Config
+	cfg := config.Default()
 	cfg.Source.SeedLines = 1000
 	cfg.Detect.Enabled = true
 	cfg.Detect.Cache = true
@@ -365,7 +451,19 @@ func writeInitConfig(items []wizard.Item) {
 	fmt.Printf("\n%d sources selected · `wstat` now uses this config; `wstat config edit` to adjust\n", len(items))
 }
 
-func fileExists(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && !fi.IsDir()
+func pinPaths(pins map[string]string) []string { return sortedKeys(pins) }
+
+func loadCommandConfig() config.Config {
+	l := config.Load()
+	if err := l.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "wstat config:", err)
+		os.Exit(1)
+	}
+	return l.Config
+}
+func cacheStatus(c config.Config) string {
+	if !c.Detect.Cache {
+		return "disabled (no cache reads/writes)"
+	}
+	return detect.CacheStatus()
 }
