@@ -1,13 +1,13 @@
 # Remediation implementation and evidence
 
 Date: 2026-10-09. Baseline: `335dfe2`. The authorized fix plan is implemented in
-the working tree. No deployment or host web/PHP configuration was changed.
+commit `19ddb688`, prepared for release v0.1.1. No host web/PHP configuration was changed.
 The [original review](../reviews/2026-10-09/README.md) remains historical evidence.
 
 ## Finding resolution
 
-All twelve reviewed defects have code changes and regression coverage. Incident
-reproduction and compatible-runner race validation remain separate external checks.
+All twelve reviewed defects have code changes and regression coverage. Ubuntu CI
+confirms race validation; original-incident reproduction remains an external check.
 
 | Finding | Implementation | Verification |
 |---|---|---|
@@ -151,12 +151,13 @@ normalized for publication; sample values, symbols and summaries are unchanged.
 | Formatting, `git diff --check`, `actionlint` | Pass |
 | Overall statement coverage | 75.0% (application 37.1%, FPM 64.9%, store 97.2%) |
 | Race suite on this host | Fails before test execution: unsupported VMA range, Found 47 / Supported 48 |
+| Ubuntu CI, including race suite, on `19ddb688` | Pass; [verified CI run](https://github.com/steamvogue/wstat/actions/runs/37993500473) |
 | Disposable real PHP-FPM E2E | Skipped; `WSTAT_FPM_E2E_ADDR` unset |
 
 The existing [CI workflow](../../.github/workflows/ci.yml) runs the race suite on
-Ubuntu. It has not been triggered or observed for this working-tree change.
-[Local race failure](race-final.txt) is preserved; compatible-runner validation
-remains outstanding. Local filesystem stalls are not made cancellable by network
+Ubuntu and passed for implementation commit `19ddb688`; [run metadata](ci-implementation.json)
+is saved. [Local race failure](race-final.txt) is preserved as host-specific evidence.
+Local filesystem stalls are not made cancellable by network
 probe cancellation. Concurrent copytruncate still has its inherent loss window.
 
 The user's original 200% CPU invocation/process was unavailable. Known allocation,

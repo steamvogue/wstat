@@ -12,8 +12,10 @@ Verified during the 2026-10-09 quality review on this Linux/ARM64 host.
 - Python 3 (`/usr/bin/python3`), standard-library `pty`, `/proc` and `termios` are
   exercised by [the reusable workload sampler](../scripts/measure_workload.py).
   It needs Linux and a compiled wstat binary; see its `--help` for durations/profiles.
-- GitHub CLI: `/usr/bin/gh`; release listing, CI inspection, release publication
-  and artifact downloads are used for the release workflow. Network access is required.
+- GitHub CLI: `/usr/bin/gh`, version 2.23.0; release listing, CI inspection,
+  release publication and artifact downloads are used for the release workflow.
+  This version lacks `gh run list --commit`; use `gh api` with the workflow-runs
+  `head_sha` query for exact-commit CI checks. Network access is required.
 
 The normal Go build cache is read-only in the Codex sandbox. A writable override fixes misleading package-loading failures:
 

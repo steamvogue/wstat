@@ -2,10 +2,11 @@
 
 Date: 2026-10-09. Baseline: revision `335dfe2`, evaluated in [the code-quality review](reviews/2026-10-09/README.md).
 
-Status: implemented in the working tree by one agent. Verification and per-finding
+Status: implemented and committed by one agent. Verification and per-finding
 resolution are recorded in [implementation evidence](implementation/README.md).
-Compatible-runner race validation, optional live-FPM E2E and reproduction of the
-original 200% CPU incident remain external checks. Original review artifacts are preserved.
+Ubuntu CI, including race validation, passes for implementation commit `19ddb688`.
+Optional live-FPM E2E and reproduction of the original 200% CPU incident remain
+external checks. Original review artifacts are preserved.
 
 ## Objectives and decisions
 
@@ -171,4 +172,4 @@ Assumptions: one implementation pass plus one focused review pass per batch; one
 - Race validation requires a compatible runner. Access to CI and queue time are external conditions, not token estimates.
 - Live FPM E2E requires a disposable instance; fake FastCGI fixtures cover most implementation work without one.
 - A soak long enough to cover repeated rotations, expiry, and sustained key churn is elapsed tool/runtime work. Its duration is separate from token consumption; sample/report output can be kept compact.
-- Implementation was subsequently authorized by the user and is complete in the working tree. No deployment, production configuration changes or extra agent execution were performed. Token usage telemetry was unavailable; the budget above remains a planning estimate, not measured usage.
+- Implementation and subsequent commit, push and release preparation were authorized by the user. No production configuration changes or extra agent execution were performed. Token usage telemetry was unavailable; the budget above remains a planning estimate, not measured usage.
