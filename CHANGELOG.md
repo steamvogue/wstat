@@ -11,7 +11,13 @@ package layout for `go install github.com/steamvogue/wstat@latest`.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-09
+
+First stable release. Since 0.1.0-rc1: config lifecycle, detection cache,
+`wstat init` wizard, and php-fpm integration.
+
 ### Added
+
 - **php-fpm integration (P4)**: pool discovery (`/etc/php/*/fpm/pool.d`,
   `/etc/php-fpm.d`, `WSTAT_FPM_POOL_GLOB` override), a minimal internal
   FastCGI client querying `pm.status_path` (`?json&full`) over unix/tcp

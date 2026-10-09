@@ -11,7 +11,7 @@ func TestParsePoolConfDebian(t *testing.T) {
 	conf := filepath.Join(dir, "www.conf")
 	content := `; comment
 [www]
-user = lordtime
+user = myweb
 group = www-data
 listen = /run/php/php8.4-fpm.sock
 listen.owner = www-data
@@ -41,7 +41,7 @@ php_admin_value[error_log] = /var/log/php-fpm.www.log
 	if p.StatusPath != "/fpm-status" || p.AccessLog == "" || !p.HasLatency() {
 		t.Errorf("status/access = %+v", p)
 	}
-	if p.SlowLog == "" || p.User != "lordtime" {
+	if p.SlowLog == "" || p.User != "myweb" {
 		t.Errorf("slowlog/user = %+v", p)
 	}
 }
