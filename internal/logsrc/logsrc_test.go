@@ -12,12 +12,17 @@ func TestVhostFromFilename(t *testing.T) {
 	cases := map[string]string{
 		"cms.local-access.log":       "cms.local",
 		"example.com.access.log":     "example.com",
-		"nodes-ssl-access.log":       "nodes-ssl",
-		"access.log":                 "access",
+		"nodes-ssl-access.log":       "nodes", // 443 variant merges into the domain vhost
+		"access.log":                 "default",
 		"a-access.log":               "a",
 		"my-site.com-access.log":     "my-site.com",
 		"other_vhosts_access.log":    "other_vhosts",
 		"prod.example.io-access.log": "prod.example.io",
+		// cPanel-style remote host naming (samples/): 80 and 443 merge
+		"allapotensmedel.com-ssl-access.log": "allapotensmedel.com",
+		"ayudadiabetes.com-access.log":       "ayudadiabetes.com",
+		"ayudadiabetes.com-ssl-access.log":   "ayudadiabetes.com",
+		"pharmaplax.com-ssl-access.log":      "pharmaplax.com",
 	}
 	for name, want := range cases {
 		if got := vhostFromFilename(name); got != want {

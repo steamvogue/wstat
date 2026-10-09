@@ -13,9 +13,10 @@ import (
 
 const (
 	streamCap  = 500
-	maxKeys    = 20000
+	maxKeys    = 20000 // hard cap on url/client rows (insert-time, bounded memory)
 	staleAfter = 2 * time.Minute
 	ewmaAlpha  = 0.4
+	maxUALen   = 80
 )
 
 // StatusMask filters status classes. Zero means "all". Bit (1<<i) covers
@@ -60,10 +61,12 @@ type agg struct {
 	last  time.Time // wall clock of last hit
 }
 
-func (a *agg) add(r parser.Record, now time.Time) {
+func (a *agg) add(r parser.Record, now time.Time, live bool) {
 	a.hits++
 	a.bytes += r.Bytes
-	a.cur++
+	if live {
+		a.cur++
+	}
 	a.last = now
 	if idx, ok := classIdx(r.Status); ok {
 		a.class[idx]++
@@ -113,16 +116,18 @@ type totals struct {
 
 // Store is safe for concurrent use.
 type Store struct {
-	mu         sync.Mutex
-	hosts      map[string]*agg
-	urls       map[string]*urlAgg
-	clients    map[string]*clientAgg
-	stream     []parser.Record
-	streamLen  int
-	streamHead int
-	tot        totals
-	bad        int64
-	lastFlush  time.Time
+	mu             sync.Mutex
+	hosts          map[string]*agg
+	urls           map[string]*urlAgg
+	clients        map[string]*clientAgg
+	stream         []parser.Record
+	streamLen      int
+	streamHead     int
+	tot            totals
+	bad            int64
+	urlOverflow    int64 // unique urls beyond maxKeys (not tracked)
+	clientOverflow int64 // unique clients beyond maxKeys (not tracked)
+	lastFlush      time.Time
 }
 
 func New() *Store {
@@ -133,8 +138,15 @@ func New() *Store {
 	}
 }
 
-// Add ingests one parsed record.
-func (s *Store) Add(r parser.Record) {
+// Add ingests one parsed live record (feeds rate counters).
+func (s *Store) Add(r parser.Record) { s.add(r, true) }
+
+// AddSeed ingests one record replayed from history at startup: it counts in
+// totals and tables but does not feed live rate counters, so a large seed
+// burst does not fake a traffic spike.
+func (s *Store) AddSeed(r parser.Record) { s.add(r, false) }
+
+func (s *Store) add(r parser.Record, live bool) {
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -142,8 +154,10 @@ func (s *Store) Add(r parser.Record) {
 	s.pushStream(r)
 	s.tot.reqs++
 	s.tot.bytes += r.Bytes
-	s.tot.curReqs++
-	s.tot.curBytes += r.Bytes
+	if live {
+		s.tot.curReqs++
+		s.tot.curBytes += r.Bytes
+	}
 	if idx, ok := classIdx(r.Status); ok {
 		s.tot.class[idx]++
 	}
@@ -156,29 +170,48 @@ func (s *Store) Add(r parser.Record) {
 		ha = &agg{}
 		s.hosts[r.Vhost] = ha
 	}
-	ha.add(r, now)
+	ha.add(r, now, live)
 
 	key := r.Vhost + "\x00" + r.Method + "\x00" + r.Path
 	ua := s.urls[key]
 	if ua == nil {
-		ua = &urlAgg{vhost: r.Vhost, method: r.Method, path: r.Path}
-		s.urls[key] = ua
+		if len(s.urls) >= maxKeys {
+			s.urlOverflow++
+		} else {
+			ua = &urlAgg{vhost: r.Vhost, method: r.Method, path: r.Path}
+			s.urls[key] = ua
+		}
 	}
-	ua.add(r, now)
+	if ua != nil {
+		ua.add(r, now, live)
+	}
 
 	ca := s.clients[r.IP]
 	if ca == nil {
-		ca = &clientAgg{vhosts: map[string]int64{}}
-		s.clients[r.IP] = ca
+		if len(s.clients) >= maxKeys {
+			s.clientOverflow++
+		} else {
+			ca = &clientAgg{vhosts: map[string]int64{}}
+			s.clients[r.IP] = ca
+		}
 	}
-	if ca.ua == "" && r.UA != "" && r.UA != "-" {
-		ca.ua = r.UA
+	if ca != nil {
+		if ca.ua == "" && r.UA != "" && r.UA != "-" {
+			ca.ua = truncate(r.UA, maxUALen)
+		}
+		if r.Bot {
+			ca.bot = true
+		}
+		ca.add(r, now, live)
+		ca.vhosts[r.Vhost]++
 	}
-	if r.Bot {
-		ca.bot = true
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
 	}
-	ca.add(r, now)
-	ca.vhosts[r.Vhost]++
+	return s
 }
 
 // AddBad counts an unparseable line.

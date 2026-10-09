@@ -218,6 +218,11 @@ func splitRequest(req string) (method, path string) {
 	if q := strings.IndexByte(path, '?'); q >= 0 {
 		path = path[:q]
 	}
+	// Normalize leading duplicate slashes (//sync.php == /sync.php) so
+	// bot probes aggregate into one row.
+	for len(path) > 1 && path[0] == '/' && path[1] == '/' {
+		path = path[1:]
+	}
 	if path == "" {
 		path = "/"
 	}

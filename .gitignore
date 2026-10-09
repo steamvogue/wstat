@@ -1,3 +1,5 @@
 /wstat
 *.test
 /tmp/
+samples/
+samples.tar.bz2

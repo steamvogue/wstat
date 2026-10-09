@@ -31,8 +31,9 @@ var DefaultGlobs = []string{
 var errorLogRe = regexp.MustCompile(`error`)
 
 var vhostPatterns = []*regexp.Regexp{
-	// <vhost>-access.log / <vhost>_access.log / <vhost>-access_log
-	regexp.MustCompile(`^(.+?)[-_]access[-_.]?log$`),
+	// <vhost>-access.log / <vhost>-ssl-access.log / <vhost>_access.log
+	// (cPanel-style per-domain logs: port 80 and 443 merge into one vhost)
+	regexp.MustCompile(`^(.+?)(?:[-_]ssl)?[-_]access[-_.]?log$`),
 	// <vhost>.access.log (Forge-style)
 	regexp.MustCompile(`^(.+?)\.access\.log$`),
 }
@@ -41,6 +42,7 @@ var vhostPatterns = []*regexp.Regexp{
 type RawLine struct {
 	Text   string
 	Source *Source
+	Seeded bool // true when replayed from history at startup
 }
 
 // Discover finds readable, non-empty access-log files matching the globs
@@ -82,7 +84,11 @@ func vhostFromFilename(base string) string {
 			return m[1]
 		}
 	}
-	return strings.TrimSuffix(base, filepath.Ext(base))
+	trimmed := strings.TrimSuffix(base, filepath.Ext(base))
+	if trimmed == "" || trimmed == "access" {
+		return "default"
+	}
+	return trimmed
 }
 
 // seedLines reads up to the last maxLines complete lines of the file and
@@ -220,7 +226,7 @@ func (t *Tailer) runSource(src *Source) {
 	seed, offset := seedLines(src.Path, t.seedN)
 	for _, l := range seed {
 		select {
-		case t.Ch <- RawLine{Text: l, Source: src}:
+		case t.Ch <- RawLine{Text: l, Source: src, Seeded: true}:
 		case <-t.stopCh:
 			return
 		}

@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -16,6 +17,10 @@ import (
 )
 
 func main() {
+	// Keep the dashboard's memory footprint bounded even under big seed
+	// replays and bot-heavy unique-path storms.
+	debug.SetMemoryLimit(48 << 20)
+
 	seedN := flag.Int("n", 1000, "lines to seed per file on startup")
 	flag.Parse()
 
@@ -36,10 +41,15 @@ func main() {
 	st := store.New()
 	go func() {
 		for line := range tailer.Ch {
-			if r, ok := parser.Parse(line.Text, line.Source.Vhost); ok {
-				st.Add(r)
-			} else {
+			r, ok := parser.Parse(line.Text, line.Source.Vhost)
+			if !ok {
 				st.AddBad()
+				continue
+			}
+			if line.Seeded {
+				st.AddSeed(r)
+			} else {
+				st.Add(r)
 			}
 		}
 	}()
