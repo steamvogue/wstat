@@ -211,8 +211,7 @@ func TestTailRotation(t *testing.T) {
 	if len(srcs) != 1 || srcs[0].Vhost != "site" {
 		t.Fatalf("discover = %+v", srcs)
 	}
-	tr := Start(srcs, []string{p}, 10, nil)
-	tr.rescanEvery = time.Second // fast self-heal restarts in this test
+	tr := Start(srcs, []string{p}, 10, nil, WithRescanEvery(time.Second))
 
 	counts := map[string]int{}
 	// Per-step deadline: rotation recovery is timing-sensitive on slow

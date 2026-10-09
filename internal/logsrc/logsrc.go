@@ -233,11 +233,19 @@ type Tailer struct {
 	wg       sync.WaitGroup
 }
 
+// Option customizes a Tailer at Start time.
+type Option func(*Tailer)
+
+// WithRescanEvery overrides the new-file rescan interval (default 60s).
+func WithRescanEvery(d time.Duration) Option {
+	return func(t *Tailer) { t.rescanEvery = d }
+}
+
 // Start begins tailing the given initial sources and keeps rescanning the
 // globs (skipped when empty) periodically for new files. Sources from
 // detection are exact; rescan-discovered files get vhosts from vhostMap or
 // the filename.
-func Start(initial []Source, globs []string, seedN int, vhostMap map[string]string) *Tailer {
+func Start(initial []Source, globs []string, seedN int, vhostMap map[string]string, opts ...Option) *Tailer {
 	t := &Tailer{
 		Ch:       make(chan RawLine, 4096),
 		globs:    globs,
@@ -246,13 +254,19 @@ func Start(initial []Source, globs []string, seedN int, vhostMap map[string]stri
 		stopCh:   make(chan struct{}),
 		running:  map[string]*Source{},
 	}
+	for _, o := range opts {
+		o(t)
+	}
 	for i := range initial {
 		t.startSource(&initial[i])
 	}
 	if len(globs) > 0 {
+		// Capture the interval before the goroutine starts so callers
+		// cannot race it via later mutation.
+		every := t.rescanEvery
 		go func() {
 			for {
-				d := t.rescanEvery
+				d := every
 				if d <= 0 {
 					d = 60 * time.Second
 				}
