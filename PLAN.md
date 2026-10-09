@@ -154,8 +154,56 @@ backfill = "10m"; backfill_max_bytes = 8388608
 | P3 | Full filters (fuzzy, client/path/method/bot/static), view switcher, sort, freeze, themes | 1 d ✅ |
 | P3.5 | Rotated/gz history replay (`*.log.N`, `*.log.N.gz` — replay-only sources), inotify→poll fix (missed-append race) | — ✅ |
 | P4 | php-fpm (FCGI spike first) tiers 1–3 + Services view + latency columns | 1–1.5 d |
-| P5 | mod_status `?auto` poller, slowlog list, backfill `--since` + gzip replay, polish | 1 d |
-| P6 | Stretch: mod_status in-flight list (ExtendedStatus + HTML scoreboard, best-effort), `ss` connections view, GeoLite2, alerts, ssh source, `--output json`, nginx provider deep support | later |
+| P5 | mod_status `?auto` poller, slowlog list, backfill `--since`, polish | 1 d |
+| P5.5 | Headless `wstat top` (ngxtop-style grammar, JSON output — scriptability for public users) | 0.5–1 d |
+| P6 | Stretch: mod_status in-flight list (ExtendedStatus + HTML scoreboard, best-effort), `ss` connections view, GeoLite2, alerts, ssh source, nginx provider deep support | later |
+
+## 8.1 Going public: GitHub, CI, releases
+
+Target: publish as a general-purpose utility ("realtime per-vhost monitor for Apache/nginx hosts"). Order of operations below; the feature roadmap above feeds §8.1.5.
+
+### 8.1.0 Decision points (blocking)
+- **Module path rename**: `wstat` → `github.com/<user>/wstat` (required for `go install ...@latest`); internal imports follow mechanically (`wstat/internal/...` → new path). Must pick the GitHub user/org first.
+- **Name check**: `wstat` collisions (pkg.go.dev, brew, existing GitHub repos; Plan 9 `wstat` syscall name is harmless). Fallbacks: `vhoststat`, `wtop` (taken), `sitebeat`.
+- **LICENSE**: MIT (aligns with the Charm ecosystem it builds on).
+- Keep `PLAN.md` public (transparency is a feature) — `samples/` stays untracked (production data).
+
+### 8.1.1 Repo hygiene (before first push)
+- `LICENSE` (MIT) · `README.md` (hero GIF via charmbracelet/vhs or asciinema, install: go install / release binaries / brew tap, keymap table, supported-formats matrix, filter semantics, **privacy statement** — reads logs locally, zero network calls, no telemetry, never writes to the host — comparison vs goaccess/ngxtop, dev quickstart) · `CHANGELOG.md` (Keep a Changelog) · `CONTRIBUTING.md` (short: test, lint, conventional commits) · `SECURITY.md`.
+- `--version` flag populated via `-ldflags "-X main.version=…"` (goreleaser injects on tags).
+- `.golangci.yml` (lean: govet, errcheck, staticcheck, ineffassign, unused).
+- Issue templates: bug reports must include `wstat doctor` output (P1 makes this the bug-report envelope).
+- CI green-ness verified: full suite is portable (samples/ tests self-skip when corpus absent). Note: `go test -race` cannot run on the dev Pi (kernel 6.12 arm64 exceeds the vendored TSAN VMA support — environmental); it runs on CI's older-kernel runners.
+
+### 8.1.2 CI (GitHub Actions)
+- `ci.yml` (push + PR):
+  - **lint**: `gofmt -l` check, `go vet`, golangci-lint.
+  - **test** matrix: `ubuntu-latest` (amd64) + `ubuntu-24.04-arm` (arm64, free for public repos), `go-version-file: go.mod`, `go test -race -count=1 ./...`.
+  - **build**: `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w"` (asserts the no-cgo, static-binary promise).
+- `release.yml` (tag `v*`): goreleaser → GitHub Release with tarballs for linux amd64 / arm64 / **armv6+armv7 (32-bit Pi OS users)**, sha256 checksums, SBOM.
+- `dependabot.yml`: go modules + actions, weekly.
+- Later/optional: OpenSSF Scorecard badge, CodeQL, OSS-Fuzz (parser + future config scanner are natural fuzz targets).
+
+### 8.1.3 Release mechanics
+- goreleaser config with `goarm: ["6", "7"]`; archives + checksums; optional own Homebrew tap repo (`homebrew-<name>`, goreleaser pushes the formula).
+- Tag **v0.1.0 only after P1 + P2** (detection + wizard = "works on any host" story, which is the public pitch). An earlier `v0.1.0-rc1` tag is fine to exercise the pipeline.
+- Per-release manual checklist: live run on the Pi, clean-container detection matrix (debian+apache2, httpd image, nginx/Forge-style), `logrotate -f` simulation, RSS/CPU budget check, doctor output review.
+
+### 8.1.4 Pre-launch polish
+- `?` help overlay (full keymap incl. P3 keys) — cheap, high value for first-time users.
+- vhs-rendered demo GIF for the README (the single biggest adoption factor for TUI tools).
+- Examples: sample `wstat.toml`, one-liner recipes (`ssh host 'wstat'`, systemd unit with `SupplementaryGroups=adm`).
+
+### 8.1.5 Feature order for public credibility
+1. **P1 detection engine + `wstat doctor`** — zero-config on *any* host is the core pitch.
+2. **P2 wizard** — first-run UX when detection is ambiguous.
+3. **P5.5 headless `wstat top`** (JSON/ngxtop grammar) — scriptability doubles the audience.
+4. **P4 php-fpm / P5 mod_status** — the differentiation features ("htop for your webserver").
+5. Launch (8.1.6) only after 1–3; 4 can land post-launch as point releases.
+
+### 8.1.6 Launch checklist (post-v0.1.0)
+- Show HN / r/selfhosted / r/golang posts with the GIF + a doctor transcript.
+- PRs: awesome-selfhosted, awesome-go, charm-and-friends in-the-wild (after ~30 days stable).
 
 ## 9. Testing & validation
 
