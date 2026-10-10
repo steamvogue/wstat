@@ -20,6 +20,11 @@ Verified during the 2026-10-09 quality review on this Linux/ARM64 host.
   release publication and artifact downloads are used for the release workflow.
   This version lacks `gh run list --commit`; use `gh api` with the workflow-runs
   `head_sha` query for exact-commit CI checks. Network access is required.
+- Release artifacts: `python3 scripts/verify_release.py ASSET_DIR VERSION FULL_COMMIT_SHA`
+  checks downloaded archive SHA-256 sums, ELF architecture/static linkage and
+  Go revision metadata, then runs `--version` for the native Linux architecture.
+  It stores `verification.json` and binary/build metadata in the asset directory
+  for reuse in release validation.
 
 The normal Go build cache is read-only in the Codex sandbox. A writable override fixes misleading package-loading failures:
 

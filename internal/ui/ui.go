@@ -452,13 +452,13 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			}
 			m.refresh(m.focus)
 		}
-	case "F": // freeze/unfreeze the hosts panel independently of the stream
+	case "f": // freeze/unfreeze Hosts independently of stream auto-follow
 		m.hostsFrozen = !m.hostsFrozen
 		if !m.hostsFrozen {
 			m.refresh()
 		}
 		return nil, true
-	case "f": // freeze stream auto-follow
+	case "z": // pause/resume stream auto-follow
 		m.frozen = !m.frozen
 		m.streamFollowing = !m.frozen
 		if !m.frozen {
@@ -648,6 +648,12 @@ func (m Model) header() string {
 
 func (m Model) chips() []string {
 	var chips []string
+	if m.hostsFrozen {
+		chips = append(chips, "hosts frozen (f)")
+	}
+	if m.frozen {
+		chips = append(chips, "stream paused (z)")
+	}
 	if names := m.filters.Hosts; len(names) > 0 {
 		chips = append(chips, "host:"+strings.Join(sortedKeys(names), ","))
 	}
@@ -677,9 +683,6 @@ func (m Model) chips() []string {
 	}
 	if m.search != "" {
 		chips = append(chips, "/"+m.search)
-	}
-	if m.frozen {
-		chips = append(chips, "frozen")
 	}
 	if m.tot.HostEvicted+m.tot.URLEvicted+m.tot.ClientEvicted+m.tot.AssociationEvicted > 0 {
 		chips = append(chips, "partial detail: evicted")
@@ -751,9 +754,9 @@ func (m Model) footer() string {
 		leftW = m.width
 	}
 	keys := "q quit · Tab focus · / find · v view"
-	hints := []string{"F hosts", "↑↓ move", "⏎ zoom", "s sort", "X clear", "f stream", "h/c/p filter", "x/m/b/t filters", "T theme"}
+	hints := []string{"f freeze", "↑↓ move", "⏎ zoom", "s sort", "X clear", "z pause", "h/c/p filter", "x/m/b/t filters", "T theme"}
 	if m.view == 1 {
-		hints = []string{"↑↓ move", "g/G ends", "⏎ zoom", "1 pools", "2 sources", "3/4 stream", "f stream"}
+		hints = []string{"↑↓ move", "g/G ends", "⏎ zoom", "1 pools", "2 sources", "3/4 stream", "z pause"}
 	}
 	for _, hint := range hints {
 		if lipgloss.Width(keys)+lipgloss.Width(hint)+3 > leftW {
@@ -801,7 +804,7 @@ func (m Model) panelTitle(panel int) string {
 	case 0:
 		title = " HOSTS "
 		if m.hostsFrozen {
-			title += "[frozen] "
+			title += "[frozen] f resume "
 		}
 		if len(m.filters.Hosts) > 0 {
 			extra = " ●" + strconvLen(m.filters.Hosts)
@@ -818,6 +821,9 @@ func (m Model) panelTitle(panel int) string {
 		}
 	case 3:
 		title = " LIVE REQUESTS "
+		if m.frozen {
+			title += "[paused] z resume "
+		}
 	}
 	if panel < 3 && m.sorts[panel] != store.SortRate {
 		extra += " ·" + m.sorts[panel].String()

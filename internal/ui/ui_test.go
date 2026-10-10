@@ -64,6 +64,7 @@ func TestBottomHelpStaysVisible(t *testing.T) {
 				m := drive(mkModel(t), tea.WindowSizeMsg{Width: size[0], Height: size[1]}, tickMsg(time.Now()))
 				// Long filter chips used to wrap the header and push help off screen.
 				m.filters.Hosts = map[string]bool{strings.Repeat("long-host", 40): true}
+				m.hostsFrozen, m.frozen = true, true
 				m.zoom = mode == "zoom"
 				if mode == "services" {
 					m.view = 1
@@ -88,9 +89,9 @@ func TestBottomHelpStaysVisible(t *testing.T) {
 					}
 				}
 				if m.width == 160 {
-					hints := []string{"F hosts", "↑↓ move", "⏎ zoom", "s sort", "X clear", "f stream", "h/c/p filter", "x/m/b/t filters", "T theme", "live:0"}
+					hints := []string{"f freeze", "↑↓ move", "⏎ zoom", "s sort", "X clear", "z pause", "h/c/p filter", "x/m/b/t filters", "T theme", "live:0"}
 					if mode == "services" {
-						hints = []string{"↑↓ move", "g/G ends", "⏎ zoom", "1 pools", "2 sources", "3/4 stream", "f stream", "live:0"}
+						hints = []string{"↑↓ move", "g/G ends", "⏎ zoom", "1 pools", "2 sources", "3/4 stream", "z pause", "live:0"}
 					}
 					for _, hint := range hints {
 						if !strings.Contains(last, hint) {
@@ -110,7 +111,7 @@ func TestHostsFreezeKeepsRowsWhileOtherPanelsUpdate(t *testing.T) {
 	m.sel[0] = 1
 	selected := m.hosts[1].Key
 	before := append([]store.Row(nil), m.hosts...)
-	m = drive(m, tea.KeyPressMsg{Text: "F"})
+	m = drive(m, tea.KeyPressMsg{Text: "f"})
 	for i := 0; i < 100; i++ {
 		m.st.Add(parser.Record{Vhost: selected, IP: "new-client", Method: "GET", Path: "/new", Status: 200, Time: time.Now()})
 	}
@@ -125,8 +126,8 @@ func TestHostsFreezeKeepsRowsWhileOtherPanelsUpdate(t *testing.T) {
 	if !strings.Contains(m.panelTitle(0), "[frozen]") {
 		t.Fatal("Hosts freeze indicator missing")
 	}
-	// Freeze stream separately; resuming Hosts must retain that setting.
-	m = drive(m, tea.KeyPressMsg{Text: "f"}, tea.KeyPressMsg{Text: "F"})
+	// Pause stream separately; resuming Hosts must retain that setting.
+	m = drive(m, tea.KeyPressMsg{Text: "z"}, tea.KeyPressMsg{Text: "f"})
 	if m.hostsFrozen || !m.frozen || reflect.DeepEqual(m.hosts, before) || len(m.hosts) != 3 {
 		t.Fatal("Hosts did not resume immediately, or changed stream freeze")
 	}
@@ -135,12 +136,125 @@ func TestHostsFreezeKeepsRowsWhileOtherPanelsUpdate(t *testing.T) {
 	}
 }
 
+func TestFreezeControlsAndIndicatorsAreIndependent(t *testing.T) {
+	m := drive(mkModel(t), tea.WindowSizeMsg{Width: 200, Height: 40}, tickMsg(time.Now()))
+	before := append([]store.Row(nil), m.hosts...)
+	steps := []struct {
+		key                 string
+		hostsFrozen, paused bool
+	}{
+		{"f", true, false},
+		{"z", true, true},
+		{"z", true, false},
+		{"f", false, false},
+		{"z", false, true},
+		{"f", true, true},
+		{"f", false, true},
+		{"z", false, false},
+	}
+	for i, step := range steps {
+		m = drive(m, tea.KeyPressMsg{Text: step.key})
+		if i == 0 {
+			m.st.Add(parser.Record{Vhost: "after-freeze.local", IP: "new-client", Method: "GET", Path: "/new", Status: 200, Time: time.Now()})
+		}
+		m = drive(m, tickMsg(time.Now()))
+		if m.hostsFrozen != step.hostsFrozen || m.frozen != step.paused {
+			t.Fatalf("step %d (%s): Hosts frozen=%t, stream paused=%t", i, step.key, m.hostsFrozen, m.frozen)
+		}
+		if i < 3 && !reflect.DeepEqual(m.hosts, before) {
+			t.Fatalf("step %d: stream toggle or tick resumed Hosts", i)
+		}
+		if i >= 3 && len(m.hosts) != 3 {
+			t.Fatalf("step %d: Hosts did not catch up after f", i)
+		}
+		for _, indicator := range []struct {
+			chip, title string
+			panel       int
+			active      bool
+		}{
+			{"hosts frozen (f)", "[frozen] f resume", 0, step.hostsFrozen},
+			{"stream paused (z)", "[paused] z resume", 3, step.paused},
+		} {
+			if strings.Contains(m.header(), indicator.chip) != indicator.active ||
+				strings.Contains(m.panelTitle(indicator.panel), indicator.title) != indicator.active ||
+				strings.Contains(m.render(), indicator.title) != indicator.active {
+				t.Fatalf("step %d: indicator %q does not match its panel state", i, indicator.chip)
+			}
+		}
+	}
+}
+
+func TestHostsFreezeKeyRepresentations(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{
+		{Text: "f", Code: 'f'},
+		{Code: 'f'},
+	} {
+		t.Run(key.Keystroke(), func(t *testing.T) {
+			m := drive(mkModel(t), tickMsg(time.Now()), key)
+			if !m.hostsFrozen || m.frozen {
+				t.Fatal("lowercase f did not freeze only Hosts")
+			}
+			m.st.Add(parser.Record{Vhost: "resumed.local", Method: "GET", Path: "/", Status: 200, Time: time.Now()})
+			m = drive(m, key)
+			if m.hostsFrozen || len(m.hosts) != 3 {
+				t.Fatal("pressing the same Hosts key again did not immediately resume")
+			}
+		})
+	}
+}
+
+func TestFreezeAndPauseBindingsAcrossViews(t *testing.T) {
+	for view, count := range []int{4, 3} {
+		for focus := 0; focus < count; focus++ {
+			t.Run(fmt.Sprintf("view%d/panel%d", view, focus), func(t *testing.T) {
+				m := drive(mkModel(t), tickMsg(time.Now()))
+				m.view, m.focus, m.serviceFocus = view, focus, focus
+				m = drive(m, tea.KeyPressMsg{Text: "f"})
+				if !m.hostsFrozen || m.frozen {
+					t.Fatal("f did not freeze only Hosts")
+				}
+				m = drive(m, tea.KeyPressMsg{Text: "z"})
+				if !m.hostsFrozen || !m.frozen || m.streamFollowing || len(m.filters.Paths) != 0 {
+					t.Fatal("z did not pause only stream auto-follow")
+				}
+				m = drive(m, tea.KeyPressMsg{Text: "f"})
+				if m.hostsFrozen || !m.frozen {
+					t.Fatal("f resume altered the stream pause")
+				}
+				m = drive(m, tea.KeyPressMsg{Text: "z"})
+				if m.hostsFrozen || m.frozen || !m.streamFollowing || m.sel[3] != len(m.streamRows())-1 {
+					t.Fatal("z did not resume at the latest request")
+				}
+			})
+		}
+	}
+	// The old uppercase freeze key is no longer an alias.
+	m := drive(mkModel(t), tickMsg(time.Now()),
+		tea.KeyPressMsg{Text: "F", Code: 'F'},
+		tea.KeyPressMsg{Code: 'f', ShiftedCode: 'F', Mod: tea.ModShift})
+	if m.hostsFrozen || m.frozen {
+		t.Fatal("uppercase F/Shift+f still toggles a freeze state")
+	}
+	// p keeps its URL path-filter action, independent of both toggles.
+	m.focus = 1
+	path := m.urls[m.sel[1]].Path
+	m = drive(m, tea.KeyPressMsg{Text: "p"})
+	if !m.filters.Paths[path] || m.hostsFrozen || m.frozen {
+		t.Fatal("p no longer filters the selected path independently")
+	}
+	// While entering a search query, letters are text rather than shortcuts.
+	m = drive(m, tea.KeyPressMsg{Text: "/"}, tea.KeyPressMsg{Text: "f"}, tea.KeyPressMsg{Text: "z"})
+	if m.search != "fz" || m.hostsFrozen || m.frozen {
+		t.Fatal("f/z search text triggered navigation shortcuts")
+	}
+}
+
 func TestHostsFilterAndSortChangesResumeUpdates(t *testing.T) {
 	for _, key := range []string{"x", "b", "t", "s", "X"} {
 		t.Run(key, func(t *testing.T) {
 			m := mkModel(t)
 			m.refresh()
-			m = drive(m, tea.KeyPressMsg{Text: "F"}, tea.KeyPressMsg{Text: key})
+			m = drive(m, tea.KeyPressMsg{Text: "f"}, tea.KeyPressMsg{Text: key})
 			if m.hostsFrozen {
 				t.Fatal("Hosts remained frozen after changing its display settings")
 			}
@@ -148,7 +262,7 @@ func TestHostsFilterAndSortChangesResumeUpdates(t *testing.T) {
 	}
 	m := mkModel(t)
 	m.refresh()
-	m = drive(m, tea.KeyPressMsg{Text: "F"}, tea.KeyPressMsg{Text: "2"}, tea.KeyPressMsg{Text: "s"})
+	m = drive(m, tea.KeyPressMsg{Text: "f"}, tea.KeyPressMsg{Text: "2"}, tea.KeyPressMsg{Text: "s"})
 	if !m.hostsFrozen {
 		t.Fatal("sorting URLs resumed Hosts")
 	}
@@ -335,9 +449,9 @@ func TestSortAndFreeze(t *testing.T) {
 	if !strings.Contains(out, "hits") {
 		t.Error("sort marker missing from title")
 	}
-	m = drive(m, tea.KeyPressMsg{Text: "f"})
+	m = drive(m, tea.KeyPressMsg{Text: "z"})
 	if !m.frozen {
-		t.Error("f must freeze the stream")
+		t.Error("z must pause the stream")
 	}
 	m = drive(m, tea.KeyPressMsg{Text: "T"})
 	if m.theme != 1 {

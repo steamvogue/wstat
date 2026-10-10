@@ -3,6 +3,8 @@
 Reviewed the changes for v0.2.0 on top of `404768f`, including bottom-help,
 Hosts-freeze and bot-filter fixes. The evidence below records local validation;
 release CI and artifact verification are recorded in the GitHub release notes.
+The sections through Validation describe v0.2.0; the follow-up below records
+the v0.2.1 bindings.
 
 ## Confirmed problems and fixes
 
@@ -69,3 +71,26 @@ the process exited with code zero. With `COLORTERM`, `NO_COLOR`, `TMUX` and
 `WT_SESSION` unset and `TERM=xterm-256color`, its captured terminal output had
 1,698 indexed colour sequences and no RGB colour sequences. This is a terminal
 smoke check, not a new performance benchmark or proof of every emitted count.
+
+## Freeze indicator follow-up (v0.2.1)
+
+The generic header `frozen` chip represented stream auto-follow only. Pressing
+`F`, then `f` twice could clear that chip while Hosts retained their frozen
+snapshot. The controls are now lowercase `f` for Hosts freeze and `z` for
+stream pause. `z` had no existing binding, so the path-filter key `p` stays
+available. Uppercase `F` is no longer assigned. The header names each panel
+and its key; titles show `[frozen] f resume` for Hosts and `[paused] z resume`
+for the stream.
+
+Regression tests exercise the independent toggle sequence, immediate Hosts
+catch-up, printable/code-only lowercase events, both views and all focused
+panes, path-filter preservation, search text and the longer titles across
+terminal sizes/views. Full Go tests, vet and lint pass locally.
+
+An isolated compiled-CLI PTY check with `TERM=xterm-256color` exercised
+`f, z, z, f` in zoomed Hosts. Twenty records for a previously empty source
+were ingested while frozen; its host stayed hidden through both stream toggles
+and appeared when `f` resumed Hosts. The program exited with code
+zero. This validates local behavior; it does not establish which key events
+the reporting user's terminal sent. Local capture and result files are under
+`/tmp/wstat-freeze-pause-bindings-check/` (temporary, not release artifacts).

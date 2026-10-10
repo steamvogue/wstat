@@ -122,16 +122,19 @@ terminals. While searching, it shows the search prompt instead.
 | `b` | cycle bot filter (all → bots → humans) |
 | `t` | hide static assets (.css/.js/images/…) |
 | `s` | cycle panel sort (rate → hits → errors → bytes) |
-| `f` | pause stream auto-follow / resume immediately at the latest request |
-| `F` | freeze / resume Hosts rows and values; other panels continue updating |
+| `f` | freeze / resume Hosts rows and values; other panels continue updating |
+| `z` | pause stream auto-follow / resume immediately at the latest request |
 | `v` | switch dashboard / services |
 | `T` | cycle theme (amber / ocean / mono; honors `NO_COLOR`) |
 | `X` | clear all filters |
 | `q` / `ctrl+c` | quit |
 
-Frozen Hosts show `[frozen]` in their title. Navigation, search and host selection
-still work. Changing the Hosts sort, status/bot/static filters, or clearing
-filters resumes Hosts updates; `F` resumes immediately.
+Frozen Hosts show `[frozen] f resume` in their title; press `f` again
+to catch up immediately. The stream shows `[paused] z resume` when
+`z` pauses auto-follow. Each header indicator names its panel and resume key.
+These toggles are independent: `z` keeps the current Hosts freeze
+state. Navigation, search and host selection still work. Changing the Hosts
+sort, status/bot/static filters, or clearing filters resumes Hosts updates.
 
 Filter and sort changes refresh immediately and return affected tables to the
 top. While selection is at the top, live refreshes keep the leaders visible;
@@ -140,7 +143,7 @@ when scrolled down, selection follows the chosen row while it remains available.
 Search applies only to the selected panel and leaves other panel positions
 alone. The stream uses the same visible search matches for rendering and
 navigation. `Up` or `g` pauses auto-follow; `G` or moving down to the final
-visible request resumes it unless `f` is active. A scrolled stream keeps the
+visible request resumes it unless `z` is active. A scrolled stream keeps the
 same request as new records arrive, including identical requests. If that
 request leaves the recent snapshot (up to 100 records matching the global
 filters), selection falls back to the oldest visible request.

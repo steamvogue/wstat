@@ -64,7 +64,7 @@ func TestStreamScrollKeepsRequestDuringRollingUpdates(t *testing.T) {
 func TestStreamResumeReturnsToLatestImmediately(t *testing.T) {
 	m := scrollModel(120)
 	m.focus = 3
-	m = drive(m, tea.KeyPressMsg{Text: "f"}, tea.KeyPressMsg{Text: "g"}, tea.KeyPressMsg{Text: "f"})
+	m = drive(m, tea.KeyPressMsg{Text: "z"}, tea.KeyPressMsg{Text: "g"}, tea.KeyPressMsg{Text: "z"})
 	if m.frozen || m.sel[3] != len(m.stream)-1 {
 		t.Fatal("unfreezing did not resume at the newest request")
 	}
@@ -154,7 +154,7 @@ func TestStreamIdenticalRequestsAndExpiry(t *testing.T) {
 	}
 	m.refresh()
 	m.focus = 3
-	m = drive(m, tea.KeyPressMsg{Text: "f"}, tea.KeyPressMsg{Code: tea.KeyUp})
+	m = drive(m, tea.KeyPressMsg{Text: "z"}, tea.KeyPressMsg{Code: tea.KeyUp})
 	id := m.stream[m.sel[3]].StreamID
 	for i := 0; i < 20; i++ {
 		m.st.AddSeed(r)

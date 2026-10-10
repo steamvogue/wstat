@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-10
+
+### Changed
+
+- Use lowercase `f` to freeze/resume Hosts and `z` to pause/resume stream
+  auto-follow. Replace the previous `F`/`f` bindings; `p` remains the path filter.
+
+### Fixed
+
+- Name Hosts freeze and stream pause separately in the header and show each
+  resume key in its panel title, avoiding the ambiguous global "frozen" label.
+- Ignore generated release output so build metadata reflects the committed
+  source; retain a reusable checksum/architecture/revision verification script.
+
 ## [0.2.0] - 2026-10-10
 
 ### Added

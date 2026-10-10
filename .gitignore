@@ -1,4 +1,5 @@
 /wstat
+/dist/
 *.test
 /tmp/
 samples/
