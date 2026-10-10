@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-10
+
+### Added
+
+- Live requests show bot markers and compact browser/bot agent identities when
+  space permits; responsive rows prioritize URLs and retain status/byte counts.
+
+### Fixed
+
+- Use brighter grey text for URL paths, client addresses and agents in all
+  themes, instead of the faint decoration colour.
+- Truncate and pad by terminal-cell width so wide Unicode paths do not push
+  later columns outside the visible row.
+
 ## [0.2.1] - 2026-10-10
 
 ### Changed

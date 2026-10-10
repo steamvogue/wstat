@@ -25,6 +25,10 @@ Verified during the 2026-10-09 quality review on this Linux/ARM64 host.
   Go revision metadata, then runs `--version` for the native Linux architecture.
   It stores `verification.json` and binary/build metadata in the asset directory
   for reuse in release validation.
+- Terminal previews: set `WSTAT_UI_PREVIEW_DIR=/tmp/wstat-preview` when running
+  `go test ./internal/ui -run TestReadabilityThemes -count=1` to capture actual
+  rendered ANSI frames for all three themes. `/usr/bin/rsvg-convert` was used
+  to rasterize an SVG representation of the captured frame for visual review.
 
 The normal Go build cache is read-only in the Codex sandbox. A writable override fixes misleading package-loading failures:
 

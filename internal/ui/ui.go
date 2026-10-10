@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/steamvogue/wstat/internal/fpm"
 	"github.com/steamvogue/wstat/internal/logsrc"
@@ -23,29 +24,29 @@ const refreshInterval = 500 * time.Millisecond
 type tickMsg time.Time
 
 type theme struct {
-	accent, borderDim, label, dim, faint, chip, white string
-	status2, status3, status4, status5                string
-	palette                                           []string
+	accent, borderDim, label, dim, faint, text, chip, white string
+	status2, status3, status4, status5                      string
+	palette                                                 []string
 }
 
 var themes = []theme{
 	{ // amber (default)
 		accent: "#e8a33d", borderDim: "#4a4a5a", label: "#8a8a9a", dim: "#6a6a7a",
-		faint: "#454555", chip: "#e8a33d", white: "#ffffff",
+		faint: "#454555", text: "#c4c4cc", chip: "#e8a33d", white: "#ffffff",
 		status2: "#41c98e", status3: "#40c4ff", status4: "#f2c14e", status5: "#f05a5a",
 		palette: []string{"#e8a33d", "#41c98e", "#40c4ff", "#c792ea", "#f78c6c",
 			"#89ddff", "#ff5370", "#a9dc76", "#bb80b3", "#aed581"},
 	},
 	{ // ocean
 		accent: "#40c4ff", borderDim: "#3a4a5a", label: "#8aa0b4", dim: "#68808f",
-		faint: "#45555f", chip: "#40c4ff", white: "#e8f4ff",
+		faint: "#45555f", text: "#c4cdd6", chip: "#40c4ff", white: "#e8f4ff",
 		status2: "#64e6a0", status3: "#7fd8ff", status4: "#ffd166", status5: "#ff7b7b",
 		palette: []string{"#40c4ff", "#64e6a0", "#e0aaff", "#ffd166", "#7fd8ff",
 			"#f49cbb", "#90f1ef", "#c0f0c0", "#bfa5ff", "#ffe0a3"},
 	},
 	{ // mono
 		accent: "#c8c8d8", borderDim: "#4a4a55", label: "#9a9aa8", dim: "#787885",
-		faint: "#55555f", chip: "#c8c8d8", white: "#ffffff",
+		faint: "#55555f", text: "#c4c4cc", chip: "#c8c8d8", white: "#ffffff",
 		status2: "#b0b0c0", status3: "#a0a0b5", status4: "#c8b890", status5: "#e8b8b8",
 		palette: []string{"#c8c8d8", "#b8b8c8", "#a8a8b8", "#9898a8", "#d8d8e8",
 			"#888898", "#e0e0f0", "#909098", "#b0b0b8", "#a0a0a8"},
@@ -61,6 +62,7 @@ var (
 	styLabel       lipgloss.Style
 	styDim         lipgloss.Style
 	styFaint       lipgloss.Style
+	styText        lipgloss.Style
 	styAccent      lipgloss.Style
 	styChip        lipgloss.Style
 	styStatusOK    lipgloss.Style
@@ -82,6 +84,7 @@ func applyTheme(i int) {
 	styLabel = lipgloss.NewStyle().Foreground(lipgloss.Color(th.label))
 	styDim = lipgloss.NewStyle().Foreground(lipgloss.Color(th.dim))
 	styFaint = lipgloss.NewStyle().Foreground(lipgloss.Color(th.faint))
+	styText = lipgloss.NewStyle().Foreground(lipgloss.Color(th.text))
 	styAccent = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.accent))
 	styChip = lipgloss.NewStyle().Foreground(lipgloss.Color("#0d0d12")).Background(lipgloss.Color(th.chip))
 	styStatusOK = lipgloss.NewStyle().Foreground(lipgloss.Color(th.status2))
@@ -951,9 +954,9 @@ func (m *Model) urlLines(w, viewH int) []string {
 			}
 			mark = styAccent.Render(mark)
 		}
-		row := mark + styDim.Render(trunc(r.Method, 5)) + " " +
+		row := mark + styLabel.Render(trunc(r.Method, 5)) + " " +
 			padStyled(vhostStyle(r.Vhost), trunc(r.Vhost+":", vhostW), vhostW) +
-			pad(styFaint, trunc(r.Path, pathW), pathW) +
+			pad(styText, trunc(r.Path, pathW), pathW) +
 			rightAligned(styLabel.Render(humanInt(r.Hits)), 8) +
 			rightAligned(styLabel.Render(humanRate(r.Rate)), 7)
 		if latCol > 0 {
@@ -992,11 +995,11 @@ func (m *Model) clientLines(w, viewH int) []string {
 			}
 			mark = styAccent.Render(mark)
 		}
-		row := bot + " " + mark + padStyled(styLabel, r.Key, 16) +
+		row := bot + " " + mark + padStyled(styText, r.Key, 16) +
 			rightAligned(styLabel.Render(humanInt(r.Hits)), 8) +
 			rightAligned(styLabel.Render(humanRate(r.Rate)), 7) +
 			rightAligned(errStyle(r.Errs, r.Hits), 6) + " " +
-			styFaint.Render(trunc(uaShort(r.UA), uaW))
+			styText.Render(trunc(uaShort(r.UA), uaW))
 		if i == m.sel[2] && m.focus == 2 {
 			row = stySel.Render(row)
 		}
@@ -1017,18 +1020,41 @@ func (m *Model) streamLines(w, viewH int) []string {
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
 		r := rows[i]
-		pathW := w - 62
-		if pathW < 6 {
-			pathW = 6
+		bot := " "
+		if r.Bot {
+			bot = styStatus4xx.Render("b")
 		}
-		ss := statusStyle(r.Status)
-		row := styStreamTime.Render(r.Time.Format("15:04:05")) + " " +
-			padStyled(vhostStyle(r.Vhost), trunc(r.Vhost, 16), 16) +
-			padStyled(styLabel, r.IP, 16) + " " +
-			styDim.Render(trunc(r.Method, 4)) + " " +
-			pad(styFaint, trunc(r.Path, pathW), pathW) +
-			rightAligned(ss.Render(fmt.Sprintf("%d", r.Status)), 4) +
-			rightAligned(styDim.Render(humanBytes(r.Bytes)), 7)
+		prefix := bot + " "
+		if w >= 80 {
+			prefix += styStreamTime.Render(r.Time.Format("15:04:05")) + " "
+		}
+		prefix += padStyled(vhostStyle(r.Vhost), r.Vhost, min(16, max(6, w/6))) + " "
+		if w >= 60 {
+			prefix += padStyled(styText, r.IP, min(16, w/6)) + " "
+		}
+		prefix += padStyled(styLabel, r.Method, 4) + " "
+		// Keep status/bytes visible and give the URL most of the remaining row.
+		available := max(1, w-lipgloss.Width(prefix)-11)
+		pathW, agentW := available, 0
+		agent := streamAgent(r.UA)
+		if agent != "" && available >= 48 {
+			agentW = min(min(40, available/3), lipgloss.Width(agent))
+			if pathLen := lipgloss.Width(r.Path); pathLen <= available {
+				// A complete URL takes priority over adding an agent column.
+				agentW = min(agentW, max(0, available-pathLen-3))
+			}
+			if agentW >= min(12, lipgloss.Width(agent)) {
+				pathW -= agentW + 3
+			} else {
+				agentW = 0
+			}
+		}
+		row := prefix + pad(styText, trunc(r.Path, pathW), pathW)
+		if agentW > 0 {
+			row += styLabel.Render(" · ") + pad(styText, trunc(agent, agentW), agentW)
+		}
+		row += rightAligned(statusStyle(r.Status).Render(fmt.Sprintf("%d", r.Status)), 4) +
+			rightAligned(styLabel.Render(humanBytes(r.Bytes)), 7)
 		if i == m.sel[3] && m.streamFocused() {
 			row = stySel.Render(row)
 		}
@@ -1326,14 +1352,46 @@ func uaShort(ua string) string {
 	return ua
 }
 
+// streamAgent keeps browser/bot identity visible even in long compatibility UAs.
+// Clients retain the longer agent text for inspecting platform details.
+func streamAgent(ua string) string {
+	ua = strings.TrimSpace(ua)
+	if ua == "-" {
+		return ""
+	}
+	fields := strings.Fields(ua)
+	for _, field := range fields {
+		token := strings.Trim(field, "();,")
+		lower := strings.ToLower(token)
+		if strings.Contains(lower, "://") {
+			continue
+		}
+		if strings.Contains(lower, "bot") || strings.Contains(lower, "spider") ||
+			strings.Contains(lower, "crawler") || strings.Contains(lower, "slurp") ||
+			strings.HasPrefix(lower, "facebookexternalhit") {
+			return token
+		}
+	}
+	// Prefer specific browsers over their Chrome/Safari compatibility tokens.
+	for _, prefix := range []string{"HeadlessChrome/", "Edg/", "EdgA/", "EdgiOS/", "OPR/", "FxiOS/", "Firefox/", "CriOS/", "Chrome/", "Safari/"} {
+		for _, field := range fields {
+			token := strings.Trim(field, "();,")
+			if strings.HasPrefix(token, prefix) {
+				return token
+			}
+		}
+	}
+	return uaShort(ua)
+}
+
 // padStyled renders s with style, padded with plain spaces to width w.
 func padStyled(style lipgloss.Style, s string, w int) string {
-	return style.Render(trunc(s, w)) + strings.Repeat(" ", max(0, w-utf8.RuneCountInString(s)))
+	return pad(style, s, w)
 }
 
 func pad(style lipgloss.Style, s string, w int) string {
-	n := max(0, w-utf8.RuneCountInString(s))
-	return style.Render(trunc(s, w)) + strings.Repeat(" ", n)
+	s = trunc(s, w)
+	return style.Render(s) + strings.Repeat(" ", max(0, w-lipgloss.Width(s)))
 }
 
 func rightAligned(s string, w int) string {
@@ -1345,11 +1403,7 @@ func trunc(s string, w int) string {
 	if w < 1 {
 		return ""
 	}
-	if utf8.RuneCountInString(s) <= w {
-		return s
-	}
-	r := []rune(s)
-	return string(r[:w-1]) + "…"
+	return ansi.Truncate(s, w, "…")
 }
 
 func humanInt(n int64) string {

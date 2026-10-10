@@ -103,6 +103,14 @@ files — on Debian/Ubuntu, membership in the `adm` group is usually enough; no 
 Supports `TERM=xterm-256color`; theme colours adapt to the terminal's palette.
 For an xterm-compatible terminal, run `TERM=xterm-256color wstat`.
 
+URL paths, client addresses and agents use light-grey text in every theme.
+Live requests show a `b` marker for requests classified as bots and a compact
+browser/bot agent beside the URL when space permits. The URL takes priority:
+the agent is shortened or omitted before a URL that otherwise fits is cut.
+On narrow terminals, live rows omit the time or client address to keep the
+URL, status and byte count visible. The Clients pane retains longer agent
+text for inspecting platform details.
+
 ### Keymap
 
 The bottom row shows compact key hints, with more bindings visible on wider
