@@ -13,19 +13,19 @@ import (
 
 func TestVhostFromFilename(t *testing.T) {
 	cases := map[string]string{
-		"cms.local-access.log":       "cms.local",
-		"example.com.access.log":     "example.com",
-		"nodes-ssl-access.log":       "nodes", // 443 variant merges into the domain vhost
-		"access.log":                 "default",
-		"a-access.log":               "a",
-		"my-site.com-access.log":     "my-site.com",
-		"other_vhosts_access.log":    "other_vhosts",
-		"prod.example.io-access.log": "prod.example.io",
-		// cPanel-style remote host naming (samples/): 80 and 443 merge
-		"allapotensmedel.com-ssl-access.log": "allapotensmedel.com",
-		"ayudadiabetes.com-access.log":       "ayudadiabetes.com",
-		"ayudadiabetes.com-ssl-access.log":   "ayudadiabetes.com",
-		"pharmaplax.com-ssl-access.log":      "pharmaplax.com",
+		"otter.net-access.log":      "otter.net",
+		"otter.net.access.log":      "otter.net",
+		"gecko-ssl-access.log":      "gecko", // 443 variant merges into the domain vhost
+		"access.log":                "default",
+		"a-access.log":              "a",
+		"red-panda.com-access.log":  "red-panda.com",
+		"other_vhosts_access.log":   "other_vhosts",
+		"prod.lemur.org-access.log": "prod.lemur.org",
+		// cPanel-style example naming: 80 and 443 merge
+		"alpaca.org-ssl-access.log":   "alpaca.org",
+		"capybara.org-access.log":     "capybara.org",
+		"capybara.org-ssl-access.log": "capybara.org",
+		"redpanda.com-ssl-access.log": "redpanda.com",
 	}
 	for name, want := range cases {
 		if got := vhostFromFilename(name); got != want {
@@ -36,23 +36,23 @@ func TestVhostFromFilename(t *testing.T) {
 
 func TestVhostPinGlobs(t *testing.T) {
 	dir := t.TempDir()
-	for _, f := range []string{"pcash.local-access.log", "pcash.local-access.log.1", "other-access.log"} {
+	for _, f := range []string{"koala.com-access.log", "koala.com-access.log.1", "other-access.log"} {
 		if err := os.WriteFile(filepath.Join(dir, f), []byte("x\ny\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	pins := map[string]string{
-		filepath.Join(dir, "pcash.local-access.log*"): "pcash.home",
+		filepath.Join(dir, "koala.com-access.log*"): "koala.net",
 	}
 	srcs := Discover([]string{filepath.Join(dir, "*access*")}, pins)
 	byBase := map[string]Source{}
 	for _, s := range srcs {
 		byBase[filepath.Base(s.Path)] = s
 	}
-	if v := byBase["pcash.local-access.log"].Vhost; v != "pcash.home" {
+	if v := byBase["koala.com-access.log"].Vhost; v != "koala.net" {
 		t.Errorf("live pin = %q", v)
 	}
-	if v := byBase["pcash.local-access.log.1"].Vhost; v != "pcash.home" {
+	if v := byBase["koala.com-access.log.1"].Vhost; v != "koala.net" {
 		t.Errorf("rotated pin = %q, want pin to cover rotations", v)
 	}
 	if v := byBase["other-access.log"].Vhost; v != "other" {
@@ -125,10 +125,10 @@ func TestRescanSkipsRotated(t *testing.T) {
 
 func TestVhostFromRotatedNames(t *testing.T) {
 	cases := map[string]string{
-		"cms.local-access.log.12.gz":  "cms.local",
+		"otter.net-access.log.12.gz":  "otter.net",
 		"access.log.1":                "default",
 		"access.log.2.gz":             "default",
-		"foo.com-ssl-access.log.3.gz": "foo.com",
+		"fox.com-ssl-access.log.3.gz": "fox.com",
 	}
 	for name, want := range cases {
 		got := vhostFromFilename(rotationSuffix.ReplaceAllString(name, ""))

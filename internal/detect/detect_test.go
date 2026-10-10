@@ -24,14 +24,14 @@ func TestScanApacheFixture(t *testing.T) {
 
 	// Exact vhost attribution from <VirtualHost> ServerName.
 	cases := map[string]string{
-		"/var/log/apache2/cms.local-access.log":      "cms.local",
-		"/var/log/apache2/dev.local-access.log":      "dev.local",
-		"/var/log/apache2/grav.local-access.log":     "grav.local",
-		"/var/log/apache2/nodes-ssl-access.log":      "grx.nodes.home",
-		"/var/log/apache2/nodes-wildcard-access.log": "wildcard.nodes",
-		"/var/log/apache2/pcash.local-access.log":    "pcash.home",
-		"/var/log/apache2/pilar.local-access.log":    "pilar.local",
-		"/var/log/apache2/unboxed.local-access.log":  "unboxed.local",
+		"/var/log/apache2/otter.net-access.log":      "otter.net",
+		"/var/log/apache2/falcon.com-access.log":     "falcon.com",
+		"/var/log/apache2/badger.org-access.log":     "badger.org",
+		"/var/log/apache2/gecko-ssl-access.log":      "admin.gecko.net",
+		"/var/log/apache2/gecko-wildcard-access.log": "wildcard.gecko.net",
+		"/var/log/apache2/koala.com-access.log":      "koala.net",
+		"/var/log/apache2/lynx.net-access.log":       "lynx.net",
+		"/var/log/apache2/wombat.com-access.log":     "wombat.com",
 	}
 	for path, want := range cases {
 		if got := res.VhostByLog[path]; got != want {
@@ -44,8 +44,8 @@ func TestScanApacheFixture(t *testing.T) {
 		t.Error("access.log must not be config-attributed (vhostless block)")
 	}
 	// Formats pinned per path.
-	if res.FormatByLog["/var/log/apache2/cms.local-access.log"] != "combined" {
-		t.Errorf("format pin = %v", res.FormatByLog["/var/log/apache2/cms.local-access.log"])
+	if res.FormatByLog["/var/log/apache2/otter.net-access.log"] != "combined" {
+		t.Errorf("format pin = %v", res.FormatByLog["/var/log/apache2/otter.net-access.log"])
 	}
 	// Format table from LogFormat directives.
 	if _, ok := res.LogFormats["vhost_combined"]; !ok {
@@ -61,7 +61,7 @@ func TestScanApacheFixture(t *testing.T) {
 	if !found {
 		t.Errorf("global other_vhosts log not found: %+v", res.GlobalLogs)
 	}
-	// 9 vhost blocks with logs (8 sites, nodes has two blocks).
+	// 9 vhost blocks with logs (8 sites, gecko has two blocks).
 	if len(res.Vhosts) != 9 {
 		t.Errorf("vhosts = %d, want 9: %+v", len(res.Vhosts), res.Vhosts)
 	}
@@ -105,8 +105,8 @@ func TestScanApachePipedLog(t *testing.T) {
 
 func TestScanNginxFixture(t *testing.T) {
 	res := ScanNginxConfig(fixture("nginx/nginx.conf"))
-	if got := res.VhostByLog["/var/log/nginx/example.com-access.log"]; got != "example.com" {
-		t.Errorf("nginx vhost = %q, want example.com: %+v", got, res.VhostByLog)
+	if got := res.VhostByLog["/var/log/nginx/otter.net-access.log"]; got != "otter.net" {
+		t.Errorf("nginx vhost = %q, want otter.net: %+v", got, res.VhostByLog)
 	}
 	if f := res.LogFormats["forge"]; !strings.Contains(f, "$remote_addr") {
 		t.Errorf("forge format = %q", f)
@@ -133,7 +133,7 @@ func TestParseRotationFixture(t *testing.T) {
 func TestProbeLogFormats(t *testing.T) {
 	dir := t.TempDir()
 	const line = `1.2.3.4 - - [21/Oct/2025:14:26:43 +0200] "GET /x HTTP/1.1" 200 5 "-" "test"`
-	const vhostLine = `cms.local:80 ` + line
+	const vhostLine = `otter.net:80 ` + line
 	const jsonLine = `{"ts":"2026-10-09","request":{"path":"/x"}}`
 	const w3cLine = `#Fields: date time c-ip cs-method`
 

@@ -1,3 +1,8 @@
+[![CI](https://github.com/steamvogue/wstat/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/steamvogue/wstat/actions/workflows/ci.yml)
+[![Go version](https://img.shields.io/github/go-mod/go-version/steamvogue/wstat)](https://github.com/steamvogue/wstat/blob/main/go.mod)
+[![Latest release](https://img.shields.io/github/v/release/steamvogue/wstat)](https://github.com/steamvogue/wstat/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Also by the author: [callm](https://github.com/steamvogue/callm) — call LLMs from your terminal · [htmlmd](https://github.com/steamvogue/htmlmd) — turn HTML into clean Markdown.
 
 ![wstat: friendly pixel goblin sysadmin at a terminal, amber wordmark and live traffic bars](docs/assets/wstat-banner.png)
@@ -26,7 +31,7 @@ example client addresses and demo request paths replace identifying data.*
 - **Zero config**: discovers logs in the standard Apache (`/var/log/apache2`,
   `/var/log/httpd`) and nginx (`/var/log/nginx`, Laravel Forge) layouts, detects the
   combined-family format per file, and derives the vhost from the log line or filename
-  (`example.com-access.log` → `example.com`; `-ssl-access.log` merges into the domain).
+  (`otter.net-access.log` → `otter.net`; `-ssl-access.log` merges into the domain).
 - **Rotation handling**: drains the old descriptor on rename/recreate and detects
   ordinary copytruncate. Concurrent copytruncate can destroy unread bytes or evade
   detection when overwritten content is identical; no reader can guarantee recovery.
@@ -98,7 +103,7 @@ enabled = false
 
 Zero-config detection scans your Apache/nginx configuration (via `apache2ctl -V` /
 `/etc/nginx/nginx.conf`, includes, `envvars`/`Define` expansion) to attribute each log
-to its exact `ServerName` — e.g. `pcash.local-access.log` → `pcash.home` even when the
+to its exact `ServerName` — e.g. `koala.com-access.log` → `koala.net` even when the
 filename would guess wrong — and falls back to the standard log globs everywhere else.
 Files declared in config but empty or missing are waited on, so idle vhosts appear the
 moment they receive traffic.

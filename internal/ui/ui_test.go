@@ -20,11 +20,11 @@ func mkModel(t *testing.T) Model {
 	st := store.New()
 	for i := 0; i < 30; i++ {
 		st.Add(parser.Record{
-			Vhost: "cms.local", IP: "10.0.0.1", Method: "GET", Path: "/panel/login",
+			Vhost: "otter.net", IP: "10.0.0.1", Method: "GET", Path: "/panel/login",
 			Status: 200, Bytes: 4096, Time: time.Now(), UA: "Mozilla/5.0 test",
 		})
 		st.Add(parser.Record{
-			Vhost: "dev.local", IP: "10.0.0.2", Method: "POST", Path: "/api/nodes",
+			Vhost: "falcon.com", IP: "10.0.0.2", Method: "POST", Path: "/api/nodes",
 			Status: 500, Bytes: 128, Time: time.Now(), UA: "curl/8.5.0",
 		})
 	}
@@ -47,7 +47,7 @@ func TestViewRenders(t *testing.T) {
 	m := mkModel(t)
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, tickMsg(time.Now()))
 	out := m.render()
-	for _, want := range []string{"HOSTS", "TOP URLS", "CLIENTS", "LIVE REQUESTS", "cms.local", "dev.local", "req/s"} {
+	for _, want := range []string{"HOSTS", "TOP URLS", "CLIENTS", "LIVE REQUESTS", "otter.net", "falcon.com", "req/s"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("render missing %q", want)
 		}
@@ -155,7 +155,7 @@ func TestFreezeControlsAndIndicatorsAreIndependent(t *testing.T) {
 	for i, step := range steps {
 		m = drive(m, tea.KeyPressMsg{Text: step.key})
 		if i == 0 {
-			m.st.Add(parser.Record{Vhost: "after-freeze.local", IP: "new-client", Method: "GET", Path: "/new", Status: 200, Time: time.Now()})
+			m.st.Add(parser.Record{Vhost: "koala.net", IP: "new-client", Method: "GET", Path: "/new", Status: 200, Time: time.Now()})
 		}
 		m = drive(m, tickMsg(time.Now()))
 		if m.panelFrozen[0] != step.hostsFrozen || m.streamPaused != step.paused {
@@ -194,7 +194,7 @@ func TestHostsFreezeKeyRepresentations(t *testing.T) {
 			if !m.panelFrozen[0] || m.streamPaused {
 				t.Fatal("lowercase f did not freeze only Hosts")
 			}
-			m.st.Add(parser.Record{Vhost: "resumed.local", Method: "GET", Path: "/", Status: 200, Time: time.Now()})
+			m.st.Add(parser.Record{Vhost: "lynx.net", Method: "GET", Path: "/", Status: 200, Time: time.Now()})
 			m = drive(m, key)
 			if m.panelFrozen[0] || len(m.hosts) != 3 {
 				t.Fatal("pressing the same Hosts key again did not immediately resume")
@@ -269,7 +269,7 @@ func TestBotFilterReturnsURLsToTopImmediately(t *testing.T) {
 	s := store.New()
 	add := func(path string, bot bool, count int) {
 		for i := 0; i < count; i++ {
-			s.AddSeed(parser.Record{Vhost: "test.local", IP: "client", Method: "GET", Path: path, Status: 200, Bot: bot, Time: time.Now()})
+			s.AddSeed(parser.Record{Vhost: "gecko.org", IP: "client", Method: "GET", Path: path, Status: 200, Bot: bot, Time: time.Now()})
 		}
 	}
 	add("/former-top", false, 250)
@@ -302,7 +302,7 @@ func TestURLTopStaysAnchoredOnLiveReorder(t *testing.T) {
 	s := store.New()
 	add := func(path string, count int) {
 		for i := 0; i < count; i++ {
-			s.AddSeed(parser.Record{Vhost: "test.local", IP: "client", Method: "GET", Path: path, Status: 200, Time: time.Now()})
+			s.AddSeed(parser.Record{Vhost: "gecko.org", IP: "client", Method: "GET", Path: path, Status: 200, Time: time.Now()})
 		}
 	}
 	add("/old-top", 10)
@@ -325,7 +325,7 @@ func TestMissingSelectedURLReturnsToTop(t *testing.T) {
 	s := store.New()
 	for i := 0; i < 40; i++ {
 		for _, method := range []string{"GET", "POST"} {
-			s.AddSeed(parser.Record{Vhost: "test.local", IP: "client", Method: method, Path: fmt.Sprintf("/url-%02d", i), Status: 200, Time: time.Now()})
+			s.AddSeed(parser.Record{Vhost: "gecko.org", IP: "client", Method: method, Path: fmt.Sprintf("/url-%02d", i), Status: 200, Time: time.Now()})
 		}
 	}
 	m := New(s, nil, nil)
@@ -345,13 +345,13 @@ func TestFilterInteractions(t *testing.T) {
 	m := mkModel(t)
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, tickMsg(time.Now()))
 
-	// Select dev.local in hosts (sorted by rate; find it by toggling each row).
+	// Select falcon.com in hosts (sorted by rate; find it by toggling each row).
 	// Simpler: set filter directly then verify cross-filter semantics.
-	m.filters.Hosts = map[string]bool{"dev.local": true}
+	m.filters.Hosts = map[string]bool{"falcon.com": true}
 	m = drive(m, tickMsg(time.Now()))
 	out := m.render()
-	if strings.Contains(out, "cms.local") == false {
-		// hosts panel must still show cms.local even when filtered
+	if strings.Contains(out, "otter.net") == false {
+		// hosts panel must still show otter.net even when filtered
 		t.Error("hosts panel must not be hidden by host filter")
 	}
 

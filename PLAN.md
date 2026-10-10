@@ -5,7 +5,7 @@
 
 One Go binary: run `wstat` on any Apache/nginx host → instant colored TUI showing **active vhosts, top URLs, and who's pulling them (client IPs)** in realtime, with live filters. Everything else (wizard, php-fpm, detection cache) is post-MVP and must never block the fast path.
 
-**MVP definition of done:** `go build && ./wstat` on this Pi shows `cms.local` etc. within 1 s of a request; `/`, `h`, `x`, `X` filters work; survives `logrotate -f` without lost/double-counted lines; idle CPU <3%, RSS <60 MB; works over ssh and in tmux; `NO_COLOR` respected.
+**MVP definition of done:** `go build && ./wstat` on this Pi shows `otter.net` etc. within 1 s of a request; `/`, `h`, `x`, `X` filters work; survives `logrotate -f` without lost/double-counted lines; idle CPU <3%, RSS <60 MB; works over ssh and in tmux; `NO_COLOR` respected.
 
 ---
 

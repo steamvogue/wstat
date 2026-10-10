@@ -13,6 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   discovery; clear it before the dashboard or startup diagnostics.
 - Replace the README's ASCII preview with an anonymized user screenshot using
   animal host labels, example addresses and demo paths.
+- Add CI, Go version, latest release and MIT license badges to the README.
+
+### Changed
+
+- Use animal-domain examples throughout public documentation and test fixtures;
+  record this privacy convention in the project's agent instructions.
 
 ### Fixed
 
@@ -167,7 +173,7 @@ First stable release. Since 0.1.0-rc1: config lifecycle, detection cache,
   VirtualHost mapping), nginx configs, per-file format fingerprinting
   (gzip-aware), permissions with distro-aware remedies, and logrotate.
   Log paths map to their exact `ServerName` from the config scan
-  (`pcash.local-access.log` → `pcash.home`); empty/missing declared
+  (`koala.com-access.log` → `koala.net`); empty/missing declared
   logs are waited on; rotated/gz history still replays.
 - **Root package layout**: `main.go` moved to the repository root so
   `go install github.com/steamvogue/wstat@latest` resolves the module's

@@ -20,6 +20,11 @@ Verified during the 2026-10-09 quality review on this Linux/ARM64 host.
   release publication and artifact downloads are used for the release workflow.
   This version lacks `gh run list --commit`; use `gh api` with the workflow-runs
   `head_sha` query for exact-commit CI checks. Network access is required.
+- Badge/link validation: `/usr/local/bin/curl_chrome142` successfully fetched
+  GitHub Actions and Shields.io SVG badges on 2026-10-10 after a plain HTTP
+  client received a 403. Use `curl_chrome142 -fLsS --max-time 20 URL -o /tmp/badge.svg`
+  and inspect the SVG's title/text or `aria-label` with Python's
+  `xml.etree.ElementTree` to confirm the actual status and metadata.
 - Release artifacts: `python3 scripts/verify_release.py ASSET_DIR VERSION FULL_COMMIT_SHA`
   checks downloaded archive SHA-256 sums, ELF architecture/static linkage and
   Go revision metadata, then runs `--version` for the native Linux architecture.

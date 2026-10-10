@@ -7,12 +7,12 @@ import (
 )
 
 func TestParseCombined(t *testing.T) {
-	line := `192.168.100.219 - - [21/Oct/2025:14:26:43 +0200] "GET /panel/login HTTP/1.1" 200 48571 "http://cms.local/panel/site" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0"`
+	line := `192.0.2.219 - - [21/Oct/2025:14:26:43 +0200] "GET /panel/login HTTP/1.1" 200 48571 "http://otter.net/panel/site" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0"`
 	r, ok := Parse(line, "fallback.test")
 	if !ok {
 		t.Fatal("expected parse ok")
 	}
-	if r.IP != "192.168.100.219" {
+	if r.IP != "192.0.2.219" {
 		t.Errorf("IP = %q", r.IP)
 	}
 	if r.Vhost != "fallback.test" {
@@ -34,12 +34,12 @@ func TestParseCombined(t *testing.T) {
 }
 
 func TestParseVhostCombined(t *testing.T) {
-	line := `cms.local:80 192.168.100.219 - - [21/Oct/2025:14:26:43 +0200] "POST /api HTTP/1.1" 404 128 "-" "curl/8.5.0"`
+	line := `otter.net:80 192.0.2.219 - - [21/Oct/2025:14:26:43 +0200] "POST /api HTTP/1.1" 404 128 "-" "curl/8.5.0"`
 	r, ok := Parse(line, "fallback.test")
 	if !ok {
 		t.Fatal("expected parse ok")
 	}
-	if r.Vhost != "cms.local" {
+	if r.Vhost != "otter.net" {
 		t.Errorf("Vhost = %q", r.Vhost)
 	}
 	if r.Status != 404 || r.Bytes != 128 {
@@ -107,7 +107,7 @@ func TestFingerprintRealLog(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	if got := Fingerprint(lines); got < 0.9 {
-		t.Errorf("fingerprint on real cms.local log = %.2f, want >= 0.9", got)
+		t.Errorf("fingerprint on anonymized otter.net log = %.2f, want >= 0.9", got)
 	}
 }
 
@@ -129,7 +129,7 @@ func BenchmarkParse(b *testing.B) {
 	b.ResetTimer()
 	n := 0
 	for i := 0; i < b.N; i++ {
-		if _, ok := Parse(bench[n%len(bench)], "bench.local"); !ok {
+		if _, ok := Parse(bench[n%len(bench)], "otter.net"); !ok {
 			b.Fatal("line failed to parse")
 		}
 		n++
