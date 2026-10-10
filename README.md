@@ -1,3 +1,7 @@
+Also by the author: [callm](https://github.com/steamvogue/callm) — call LLMs from your terminal · [htmlmd](https://github.com/steamvogue/htmlmd) — turn HTML into clean Markdown.
+
+![wstat: friendly pixel goblin sysadmin at a terminal, amber wordmark and live traffic bars](docs/assets/wstat-banner.png)
+
 # wstat
 
 **Realtime per-vhost traffic monitor for Apache and nginx — a dashboard in your terminal.**
@@ -21,6 +25,10 @@ Debian/Ubuntu/RHEL/nginx/Laravel Forge layouts.
 ```
 
 ## Highlights
+
+- **Independent pane freeze**: press `f` to freeze the focused pane for copying;
+  freeze several panes at once, then press Shift+F to resume them all. Works in
+  Dashboard and Services; `z` separately pauses stream auto-follow.
 
 - **Zero config**: discovers logs in the standard Apache (`/var/log/apache2`,
   `/var/log/httpd`) and nginx (`/var/log/nginx`, Laravel Forge) layouts, detects the
@@ -130,23 +138,36 @@ terminals. While searching, it shows the search prompt instead.
 | `b` | cycle bot filter (all → bots → humans) |
 | `t` | hide static assets (.css/.js/images/…) |
 | `s` | cycle panel sort (rate → hits → errors → bytes) |
-| `f` | freeze / resume Hosts rows and values; other panels continue updating |
+| `f` | freeze / resume the focused pane; each pane has its own state |
+| `F` (Shift+F) | unfreeze every pane in both views |
 | `z` | pause stream auto-follow / resume immediately at the latest request |
 | `v` | switch dashboard / services |
 | `T` | cycle theme (amber / ocean / mono; honors `NO_COLOR`) |
 | `X` | clear all filters |
 | `q` / `ctrl+c` | quit |
 
-Frozen Hosts show `[frozen] f resume` in their title; press `f` again
-to catch up immediately. The stream shows `[paused] z resume` when
-`z` pauses auto-follow. Each header indicator names its panel and resume key.
-These toggles are independent: `z` keeps the current Hosts freeze
-state. Navigation, search and host selection still work. Changing the Hosts
-sort, status/bot/static filters, or clearing filters resumes Hosts updates.
+Press `f` to keep the focused pane's rows, values and order stable for copying.
+Focus another pane and press `f` to freeze it too. This works for Hosts, Top
+URLs, Clients, Live Requests, PHP-FPM and Source Health. Frozen panes show
+`[frozen] f resume`; the header names each frozen pane. The stream shares its
+freeze state between Dashboard and Services. Scrolling, search, zoom and
+resizing still work within the retained snapshot. Ingestion, totals, live
+alerts and unfrozen panes continue updating.
 
-Filter and sort changes refresh immediately and return affected tables to the
-top. While selection is at the top, live refreshes keep the leaders visible;
+Press `f` again to catch up that pane immediately, or Shift+F to unfreeze all
+panes, including those in the other view. Filter and sort changes leave frozen
+data and its filter/sort labels intact; current settings apply on resume.
+For unfrozen tables, changes refresh immediately and return affected tables to
+the top. While selection is at the top, live refreshes keep the leaders visible;
 when scrolled down, selection follows the chosen row while it remains available.
+
+`z` independently pauses stream auto-follow, shown as `[paused] z resume`.
+It keeps receiving records, so scrolling may reveal newer data; use `f` on the
+stream to retain a stable snapshot. Shift+F keeps the `z` pause setting.
+Resuming a frozen stream follows the latest request if auto-follow is enabled;
+otherwise it keeps the inspected request if still available, falling back to
+the oldest visible record if it has expired. Exit search entry before using
+`f`, Shift+F or `z`: these letters are query text while typing a search.
 
 Search applies only to the selected panel and leaves other panel positions
 alone. The stream uses the same visible search matches for rendering and

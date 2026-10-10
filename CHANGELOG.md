@@ -5,6 +5,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
+### Added
+
+- Freeze the focused pane independently with `f`, allowing several panes to
+  retain stable snapshots at once in Dashboard and Services. Shift+F unfreezes
+  all panes; stream auto-follow pause (`z`) remains independent.
+- Frozen Live Requests retain their records while the live buffer rolls over.
+  Frozen panes keep their filter/sort labels until resuming, and support
+  scrolling, search, zoom and resizing without replacing their data.
+
+- Friendly goblin pixel-art Linux admin banner and brief references to the author's callm and
+  htmlmd projects at the top of the README.
+
+### Changed
+
+- `f` now targets the focused pane instead of always targeting Hosts. Shift+F
+  is assigned to global unfreeze; existing `z` pause and filter keys are retained.
+- Global filter/sort changes and clearing filters no longer unfreeze panes;
+  pending settings apply when the pane resumes.
+
 ## [0.2.2] - 2026-10-10
 
 ### Added

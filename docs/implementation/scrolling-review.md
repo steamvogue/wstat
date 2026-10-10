@@ -4,7 +4,8 @@ Reviewed the changes for v0.2.0 on top of `404768f`, including bottom-help,
 Hosts-freeze and bot-filter fixes. The evidence below records local validation;
 release CI and artifact verification are recorded in the GitHub release notes.
 The sections through Validation describe v0.2.0; the follow-up below records
-the v0.2.1 bindings.
+the v0.2.1 bindings. The final section describes the v0.3.0
+per-pane freeze behaviour, which supersedes those historical bindings.
 
 ## Confirmed problems and fixes
 
@@ -94,3 +95,50 @@ and appeared when `f` resumed Hosts. The program exited with code
 zero. This validates local behavior; it does not establish which key events
 the reporting user's terminal sent. Local capture and result files are under
 `/tmp/wstat-freeze-pause-bindings-check/` (temporary, not release artifacts).
+
+## Independent pane freeze (v0.3.0)
+
+Lowercase `f` now freezes/resumes the focused pane. Hosts, Top URLs, Clients,
+Live Requests, PHP-FPM and Source Health each retain their own snapshot; several
+can remain frozen together. The stream is one shared pane across both views.
+Shift+F unfreezes all panes, including those in the hidden view. This key was
+unassigned in v0.2.2, so there is no overlapping shortcut.
+
+A frozen pane retains rows, metrics and order across ticks, global filter/sort
+changes and ingestion. Table labels and selection markers describe its captured
+filters/sort; filter maps are cloned because the live toggles mutate them.
+Clearing filters keeps frozen viewport positions. User scrolling, local search,
+zoom, resize and themes can redraw the retained data without replacing it.
+Resuming applies current filters/sort immediately and preserves the inspected
+row where it remains available. Empty panes can be frozen too.
+
+Live Requests retain their immutable snapshot even after those records leave
+both the visible recent snapshot and the underlying live buffer. `z` remains
+an independent auto-follow pause: it permits live data refreshes, whereas `f`
+retains data. Neither individual resume nor Shift+F clears `z`. On resume, the
+stream follows the latest visible request if auto-follow is enabled; otherwise
+it remaps the inspected request by ID, falling back to the oldest visible
+request when that record is no longer available.
+
+PHP-FPM snapshots copy pool values and pointed-to status counters. Source
+snapshots retain the tailer's copied sources and diagnostics. Header totals,
+source counts and FPM alerts continue to reflect live ingestion even while
+those panes are frozen. Every frozen pane shows its own title indicator;
+compact bottom help includes `f freeze` and `F thaw all` in both views.
+
+`internal/ui/freeze_test.go` checks all table snapshots, multiple simultaneous
+freezes, individual and global resume, printable/code-only/modified Shift+F,
+stream buffer rollover, scrolling, search, shared views, zoom/resize, frozen
+filter-map isolation, live pool alerts, real source discovery and empty panes.
+Existing UI/scrolling regressions were updated for the new focused-pane binding
+and explicit auto-follow pause state. Full Go tests, vet and lint pass locally;
+local race checks remain unavailable for the host reason recorded above.
+
+The compiled CLI also passed an isolated `TERM=xterm-256color` PTY smoke check.
+Hosts, URLs and stream were frozen together while twenty requests were appended
+to a real access log. Scrolling the frozen stream kept its data; resuming URLs
+left Hosts and stream frozen. Sending uppercase `F` resumed all panes while
+preserving `z` pause, and the newly ingested host/path became visible. The
+process exited with code zero. Captures and results are temporarily stored in
+`/tmp/wstat-panel-freeze-check/`; the helper is `/tmp/check-wstat-panel-freeze.py`
+and the tested binary is `/tmp/wstat-panel-freeze`.

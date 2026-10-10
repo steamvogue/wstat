@@ -4,6 +4,8 @@ package ui
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +22,13 @@ import (
 )
 
 const refreshInterval = 500 * time.Millisecond
+
+const (
+	streamPanel  = 3
+	poolsPanel   = 4
+	sourcesPanel = 5
+	panelCount   = 6
+)
 
 type tickMsg time.Time
 
@@ -136,8 +145,13 @@ type Model struct {
 	sel             [4]int
 	filters         store.Filters
 	sorts           [3]store.SortKey
-	frozen          bool
-	hostsFrozen     bool
+	streamPaused    bool
+	panelFrozen     [panelCount]bool
+	frozenFilters   [4]store.Filters
+	frozenSorts     [3]store.SortKey
+	frozenPools     []fpm.PoolView
+	frozenSources   []logsrc.Source
+	frozenErrors    map[string]string
 	theme           int
 	search          string
 	searchMode      bool
@@ -171,8 +185,8 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) refresh(resetPanels ...int) {
-	// Keep the stream pinned to the bottom unless frozen or scrolled up.
-	atBottom := !m.frozen && m.streamFollowing
+	// Keep the stream pinned to the bottom unless auto-follow is paused or scrolled up.
+	atBottom := !m.streamPaused && m.streamFollowing
 	oldStream := m.streamRows()
 	var streamID uint64
 	if i := m.sel[3]; i >= 0 && i < len(oldStream) {
@@ -196,12 +210,24 @@ func (m *Model) refresh(resetPanels ...int) {
 	hosts, urls, clients, stream, tot, bad := m.st.Snapshot(m.filters, m.sorts, 200)
 	// Snapshot rows are immutable, so retaining this slice freezes both order
 	// and values without copying or pausing ingestion into the store.
-	if !m.hostsFrozen {
+	if !m.panelFrozen[0] {
 		m.hosts = hosts
 	}
-	m.urls, m.clients, m.stream, m.tot, m.bad = urls, clients, stream, tot, bad
+	if !m.panelFrozen[1] {
+		m.urls = urls
+	}
+	if !m.panelFrozen[2] {
+		m.clients = clients
+	}
+	if !m.panelFrozen[streamPanel] {
+		m.stream = stream
+	}
+	m.tot, m.bad = tot, bad
 
 	for panel, key := range selected {
+		if m.panelFrozen[panel] {
+			continue
+		}
 		if reset[panel] || key != "" {
 			m.sel[panel] = 0
 		}
@@ -215,15 +241,18 @@ func (m *Model) refresh(resetPanels ...int) {
 			}
 		}
 	}
-	streamRows := m.streamRows()
-	if atBottom {
-		m.sel[3] = max(0, len(streamRows)-1)
-	} else {
-		m.sel[3] = 0
-		for i, r := range streamRows {
-			if streamID != 0 && r.StreamID == streamID {
-				m.sel[3] = i
-				break
+	// Retain the frozen viewport even when auto-follow is enabled.
+	if !m.panelFrozen[streamPanel] {
+		streamRows := m.streamRows()
+		if atBottom {
+			m.sel[3] = max(0, len(streamRows)-1)
+		} else {
+			m.sel[3] = 0
+			for i, r := range streamRows {
+				if streamID != 0 && r.StreamID == streamID {
+					m.sel[3] = i
+					break
+				}
 			}
 		}
 	}
@@ -405,7 +434,6 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			}
 		}
 	case "x": // cycle status filter
-		m.hostsFrozen = false
 		switch m.filters.Mask {
 		case 0:
 			m.filters.Mask = store.MaskErr
@@ -428,7 +456,6 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		m.refreshFilters(1)
 	case "b": // cycle bots filter
-		m.hostsFrozen = false
 		switch m.filters.Bots {
 		case 0:
 			m.filters.Bots = +1
@@ -439,7 +466,6 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		m.refreshFilters(0, 1, 2)
 	case "t": // cycle static-asset filter
-		m.hostsFrozen = false
 		switch m.filters.Static {
 		case 0:
 			m.filters.Static = -1
@@ -450,21 +476,23 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "s": // cycle sort of focused table panel
 		if m.view == 0 && m.focus < 3 {
 			m.sorts[m.focus] = (m.sorts[m.focus] + 1) % 4
-			if m.focus == 0 {
-				m.hostsFrozen = false
-			}
 			m.refresh(m.focus)
 		}
-	case "f": // freeze/unfreeze Hosts independently of stream auto-follow
-		m.hostsFrozen = !m.hostsFrozen
-		if !m.hostsFrozen {
-			m.refresh()
+	case "f": // toggle only the focused pane's snapshot
+		m.toggleFreeze(m.activePanel())
+		return nil, true
+	case "F", "shift+f": // resume every pane, including those in the other view
+		m.panelFrozen = [panelCount]bool{}
+		m.frozenPools, m.frozenSources, m.frozenErrors = nil, nil, nil
+		m.refresh()
+		if m.view == 0 {
+			m.refreshServices()
 		}
 		return nil, true
 	case "z": // pause/resume stream auto-follow
-		m.frozen = !m.frozen
-		m.streamFollowing = !m.frozen
-		if !m.frozen {
+		m.streamPaused = !m.streamPaused
+		m.streamFollowing = !m.streamPaused
+		if !m.streamPaused {
 			m.sel[3] = max(0, len(m.streamRows())-1)
 		}
 		return nil, true
@@ -479,11 +507,18 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		applyTheme(m.theme)
 		return nil, true
 	case "X": // clear every filter
-		m.hostsFrozen = false
 		m.filters = store.Filters{}
 		m.search = ""
-		m.sel = [4]int{}
-		m.serviceSel = [2]int{}
+		for panel := range m.sel {
+			if !m.panelFrozen[panel] {
+				m.sel[panel] = 0
+			}
+		}
+		for panel := range m.serviceSel {
+			if !m.panelFrozen[poolsPanel+panel] {
+				m.serviceSel[panel] = 0
+			}
+		}
 		m.refreshFilters(0, 1, 2)
 	default:
 		return nil, false
@@ -491,8 +526,72 @@ func (m *Model) navKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	return nil, true
 }
 
+// activePanel maps both views onto independent panes; the stream is shared.
+func (m Model) activePanel() int {
+	if m.view == 1 {
+		if m.serviceFocus < 2 {
+			return poolsPanel + m.serviceFocus
+		}
+		return streamPanel
+	}
+	return m.focus
+}
+
+func (m *Model) toggleFreeze(panel int) {
+	if m.panelFrozen[panel] {
+		m.panelFrozen[panel] = false
+		switch panel {
+		case poolsPanel:
+			m.frozenPools = nil
+		case sourcesPanel:
+			m.frozenSources, m.frozenErrors = nil, nil
+		}
+		m.refresh()
+		return
+	}
+	if panel < 4 {
+		filters := m.filters
+		filters.Hosts = maps.Clone(filters.Hosts)
+		filters.Clients = maps.Clone(filters.Clients)
+		filters.Paths = maps.Clone(filters.Paths)
+		m.frozenFilters[panel] = filters
+		if panel < 3 {
+			m.frozenSorts[panel] = m.sorts[panel]
+		}
+	}
+	switch panel {
+	case poolsPanel:
+		m.frozenPools = slices.Clone(m.fpmSnapshot())
+		for i := range m.frozenPools {
+			if status := m.frozenPools[i].Status; status != nil {
+				copy := *status
+				m.frozenPools[i].Status = &copy
+			}
+		}
+	case sourcesPanel:
+		if m.tailer != nil {
+			m.frozenSources, m.frozenErrors = m.tailer.Sources(), m.tailer.Errors()
+		}
+	}
+	m.panelFrozen[panel] = true
+}
+
+func (m Model) panelFilters(panel int) store.Filters {
+	if m.panelFrozen[panel] {
+		return m.frozenFilters[panel]
+	}
+	return m.filters
+}
+
+func (m Model) panelSort(panel int) store.SortKey {
+	if m.panelFrozen[panel] {
+		return m.frozenSorts[panel]
+	}
+	return m.sorts[panel]
+}
+
 func (m *Model) refreshFilters(resetPanels ...int) {
-	m.streamFollowing = !m.frozen
+	m.streamFollowing = !m.streamPaused
 	m.refresh(resetPanels...)
 }
 
@@ -514,7 +613,7 @@ func (m *Model) moveSelection(delta int) {
 	sel, count := m.navigationSelection()
 	*sel = clamp(*sel+delta, 0, count-1)
 	if m.streamFocused() {
-		m.streamFollowing = !m.frozen && delta > 0 && *sel == max(0, count-1)
+		m.streamFollowing = !m.streamPaused && delta > 0 && *sel == max(0, count-1)
 	}
 }
 
@@ -525,7 +624,7 @@ func (m *Model) jumpSelection(end bool) {
 		*sel = max(0, count-1)
 	}
 	if m.streamFocused() {
-		m.streamFollowing = end && !m.frozen
+		m.streamFollowing = end && !m.streamPaused
 	}
 }
 
@@ -651,10 +750,12 @@ func (m Model) header() string {
 
 func (m Model) chips() []string {
 	var chips []string
-	if m.hostsFrozen {
-		chips = append(chips, "hosts frozen (f)")
+	for panel, name := range []string{"hosts", "URLs", "clients", "stream", "PHP-FPM", "sources"} {
+		if m.panelFrozen[panel] {
+			chips = append(chips, name+" frozen (f)")
+		}
 	}
-	if m.frozen {
+	if m.streamPaused {
 		chips = append(chips, "stream paused (z)")
 	}
 	if names := m.filters.Hosts; len(names) > 0 {
@@ -696,7 +797,7 @@ func (m Model) chips() []string {
 	if len(m.filters.Paths) > 0 || len(m.filters.Clients) > 0 {
 		chips = append(chips, "path/ip: stream")
 	}
-	if views := m.fpmSnapshot(); len(views) > 0 {
+	if views := m.liveFPMSnapshot(); len(views) > 0 {
 		if ok, msg := fpm.AnyAlert(views); ok {
 			chips = append(chips, msg)
 		}
@@ -757,9 +858,9 @@ func (m Model) footer() string {
 		leftW = m.width
 	}
 	keys := "q quit · Tab focus · / find · v view"
-	hints := []string{"f freeze", "↑↓ move", "⏎ zoom", "s sort", "X clear", "z pause", "h/c/p filter", "x/m/b/t filters", "T theme"}
+	hints := []string{"f freeze", "F thaw all", "↑↓ move", "⏎ zoom", "s sort", "X clear", "z pause", "h/c/p filter", "x/m/b/t filters", "T theme"}
 	if m.view == 1 {
-		hints = []string{"↑↓ move", "g/G ends", "⏎ zoom", "1 pools", "2 sources", "3/4 stream", "z pause"}
+		hints = []string{"f freeze", "F thaw all", "↑↓ move", "g/G ends", "⏎ zoom", "1 pools", "2 sources", "3/4 stream", "z pause"}
 	}
 	for _, hint := range hints {
 		if lipgloss.Width(keys)+lipgloss.Width(hint)+3 > leftW {
@@ -803,33 +904,34 @@ func (m Model) body() string {
 
 func (m Model) panelTitle(panel int) string {
 	var title, extra string
+	filters := m.panelFilters(panel)
 	switch panel {
 	case 0:
 		title = " HOSTS "
-		if m.hostsFrozen {
-			title += "[frozen] f resume "
-		}
-		if len(m.filters.Hosts) > 0 {
-			extra = " ●" + strconvLen(m.filters.Hosts)
+		if len(filters.Hosts) > 0 {
+			extra = " ●" + strconvLen(filters.Hosts)
 		}
 	case 1:
 		title = " TOP URLS "
-		if len(m.filters.Paths) > 0 {
-			extra = " ●" + strconvLen(m.filters.Paths)
+		if len(filters.Paths) > 0 {
+			extra = " ●" + strconvLen(filters.Paths)
 		}
 	case 2:
 		title = " CLIENTS "
-		if len(m.filters.Clients) > 0 {
-			extra = " ●" + strconvLen(m.filters.Clients)
+		if len(filters.Clients) > 0 {
+			extra = " ●" + strconvLen(filters.Clients)
 		}
 	case 3:
 		title = " LIVE REQUESTS "
-		if m.frozen {
-			title += "[paused] z resume "
-		}
 	}
-	if panel < 3 && m.sorts[panel] != store.SortRate {
-		extra += " ·" + m.sorts[panel].String()
+	if m.panelFrozen[panel] {
+		title += "[frozen] f resume "
+	}
+	if panel == streamPanel && m.streamPaused {
+		title += "[paused] z resume "
+	}
+	if panel < 3 && m.panelSort(panel) != store.SortRate {
+		extra += " ·" + m.panelSort(panel).String()
 	}
 	return title + extra + " "
 }
@@ -882,11 +984,12 @@ func (m Model) panel(panel int, w, h int) string {
 }
 
 func (m *Model) hostLines(w, viewH int) []string {
+	filters := m.panelFilters(0)
 	rows := m.filteredRows(0)
 	if len(rows) == 0 {
 		return nil
 	}
-	filtered := len(m.filters.Hosts) > 0
+	filtered := len(filters.Hosts) > 0
 	start := windowStart(m.sel[0], len(rows), viewH)
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
@@ -895,7 +998,7 @@ func (m *Model) hostLines(w, viewH int) []string {
 		vs := vhostStyle(r.Key)
 		name := r.Key
 		if filtered {
-			if m.filters.Hosts[r.Key] {
+			if filters.Hosts[r.Key] {
 				mark = "●"
 				name = stySel.Render(" " + r.Key + " ")
 			} else {
@@ -929,6 +1032,7 @@ func (m *Model) anyLatency() bool {
 }
 
 func (m *Model) urlLines(w, viewH int) []string {
+	filters := m.panelFilters(1)
 	rows := m.filteredRows(1)
 	if len(rows) == 0 {
 		return nil
@@ -937,7 +1041,7 @@ func (m *Model) urlLines(w, viewH int) []string {
 	if m.anyLatency() {
 		latCol = 7
 	}
-	pathFiltered := len(m.filters.Paths) > 0
+	pathFiltered := len(filters.Paths) > 0
 	start := windowStart(m.sel[1], len(rows), viewH)
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
@@ -949,7 +1053,7 @@ func (m *Model) urlLines(w, viewH int) []string {
 		}
 		mark := " "
 		if pathFiltered {
-			if m.filters.Paths[r.Path] {
+			if filters.Paths[r.Path] {
 				mark = "●"
 			}
 			mark = styAccent.Render(mark)
@@ -971,11 +1075,12 @@ func (m *Model) urlLines(w, viewH int) []string {
 }
 
 func (m *Model) clientLines(w, viewH int) []string {
+	filters := m.panelFilters(2)
 	rows := m.filteredRows(2)
 	if len(rows) == 0 {
 		return nil
 	}
-	ipFiltered := len(m.filters.Clients) > 0
+	ipFiltered := len(filters.Clients) > 0
 	start := windowStart(m.sel[2], len(rows), viewH)
 	var out []string
 	for i := start; i < len(rows) && len(out) < viewH; i++ {
@@ -990,7 +1095,7 @@ func (m *Model) clientLines(w, viewH int) []string {
 		}
 		mark := " "
 		if ipFiltered {
-			if m.filters.Clients[r.Key] {
+			if filters.Clients[r.Key] {
 				mark = "●"
 			}
 			mark = styAccent.Render(mark)
@@ -1125,6 +1230,9 @@ func (m Model) boxed(panel int, title string, lines []string, contentW, h int) s
 	if m.serviceFocus == panel {
 		sty, border = styTitle, styBorderFocus
 	}
+	if m.panelFrozen[poolsPanel+panel] {
+		title += "[frozen] f resume "
+	}
 	t := sty.Render(title)
 	var b strings.Builder
 	mw := lipgloss.NewStyle().MaxWidth(contentW)
@@ -1137,6 +1245,13 @@ func (m Model) boxed(panel int, title string, lines []string, contentW, h int) s
 }
 
 func (m Model) fpmSnapshot() []fpm.PoolView {
+	if m.panelFrozen[poolsPanel] {
+		return m.frozenPools
+	}
+	return m.liveFPMSnapshot()
+}
+
+func (m Model) liveFPMSnapshot() []fpm.PoolView {
 	if m.fpmViews == nil {
 		return nil
 	}
@@ -1226,8 +1341,10 @@ func (m Model) sourceEntries(w int) []serviceEntry {
 	if m.tailer == nil {
 		return nil
 	}
-	diagnostics := m.tailer.Errors()
-	srcs := m.tailer.Sources()
+	diagnostics, srcs := m.frozenErrors, m.frozenSources
+	if !m.panelFrozen[sourcesPanel] {
+		diagnostics, srcs = m.tailer.Errors(), m.tailer.Sources()
+	}
 	var out []serviceEntry
 	live, replay := 0, 0
 	for _, s := range srcs {

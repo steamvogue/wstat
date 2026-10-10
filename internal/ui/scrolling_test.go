@@ -65,7 +65,7 @@ func TestStreamResumeReturnsToLatestImmediately(t *testing.T) {
 	m := scrollModel(120)
 	m.focus = 3
 	m = drive(m, tea.KeyPressMsg{Text: "z"}, tea.KeyPressMsg{Text: "g"}, tea.KeyPressMsg{Text: "z"})
-	if m.frozen || m.sel[3] != len(m.stream)-1 {
+	if m.streamPaused || m.sel[3] != len(m.stream)-1 {
 		t.Fatal("unfreezing did not resume at the newest request")
 	}
 }
@@ -167,7 +167,7 @@ func TestStreamIdenticalRequestsAndExpiry(t *testing.T) {
 		m.st.AddSeed(r)
 	}
 	m = drive(m, tickMsg(time.Now()))
-	if m.sel[3] != 0 || m.streamFollowing || !m.frozen {
+	if m.sel[3] != 0 || m.streamFollowing || !m.streamPaused {
 		t.Fatal("expired request did not fall back to the oldest retained request")
 	}
 }
