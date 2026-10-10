@@ -30,6 +30,14 @@ Verified during the 2026-10-09 quality review on this Linux/ARM64 host.
   rendered ANSI frames for all three themes. `/usr/bin/rsvg-convert` was used
   to rasterize an SVG representation of the captured frame for visual review.
 
+- Startup/quit validation: `python3 scripts/check_startup_terminal.py /tmp/wstat --output /tmp/startup-check`
+  uses a temporary FIFO to delay config reading, verifies changing spinner
+  frames, cleared progress before UI/errors, and a fresh shell-prompt line
+  after `q`. It stores raw terminal captures and JSON results for reuse.
+- PNG metadata: `/usr/bin/exiftool` 12.57 inspected the anonymized README image,
+  including dimensions and imagegen/C2PA provenance. The PNG was also visually
+  reviewed for remaining identifying text; metadata inspection is not OCR.
+
 The normal Go build cache is read-only in the Codex sandbox. A writable override fixes misleading package-loading failures:
 
 ```sh

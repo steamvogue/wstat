@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-10
+
+### Added
+
+- Animate a single loading line during interactive configuration/source
+  discovery; clear it before the dashboard or startup diagnostics.
+- Replace the README's ASCII preview with an anonymized user screenshot using
+  animal host labels, example addresses and demo paths.
+
+### Fixed
+
+- Print a newline after leaving the dashboard so the shell prompt starts on
+  a fresh line.
+
 ## [0.3.0] - 2026-10-10
 
 ### Added

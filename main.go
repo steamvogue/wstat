@@ -61,8 +61,12 @@ func run() (code int) {
 		return 0
 	}
 
+	stopLoading := startLoading(os.Stderr)
+	defer stopLoading()
+
 	cleanup, err := startProfiles(*cpuPath, *heapPath, *profileAfter)
 	if err != nil {
+		stopLoading()
 		fmt.Fprintln(os.Stderr, "wstat:", err)
 		return 1
 	}
@@ -76,6 +80,7 @@ func run() (code int) {
 	}()
 	loaded := config.LoadWithPath(*configPath)
 	if err := loaded.Err(); err != nil {
+		stopLoading()
 		fmt.Fprintln(os.Stderr, "wstat config:", err)
 		return 1
 	}
@@ -90,6 +95,7 @@ func run() (code int) {
 		}
 	})
 	if seed < 0 || seed > 100000 {
+		stopLoading()
 		fmt.Fprintln(os.Stderr, "wstat: -n must be between 0 and 100000")
 		return 2
 	}
@@ -155,6 +161,7 @@ func run() (code int) {
 		}
 	}
 	if len(sources) == 0 {
+		stopLoading()
 		fmt.Fprintln(os.Stderr, "wstat: no access logs found")
 		fmt.Fprintf(os.Stderr, "  searched: %s\n", strings.Join(rescanGlobs, " "))
 		fmt.Fprintln(os.Stderr, "run `wstat doctor` to see what was detected on this host")
@@ -170,6 +177,9 @@ func run() (code int) {
 	router := newIngestionRouter()
 	var serviceDiagnostics map[string]string
 	router.services, serviceDiagnostics = fpm.AccessParsers(fpmPools)
+	if len(serviceDiagnostics) > 0 {
+		stopLoading()
+	}
 	for _, path := range sortedKeys(serviceDiagnostics) {
 		fmt.Fprintf(os.Stderr, "wstat: FPM %s: %s\n", path, serviceDiagnostics[path])
 	}
@@ -209,10 +219,12 @@ func run() (code int) {
 	}()
 	defer func() { tailer.Stop(); <-drained }()
 
+	stopLoading()
 	if _, err := tea.NewProgram(ui.New(st, tailer, fpmViews)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "wstat:", err)
 		return 1
 	}
+	_, _ = fmt.Fprintln(os.Stdout) // Restore a clean line for the caller's next prompt.
 	return 0
 }
 

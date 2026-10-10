@@ -12,17 +12,10 @@ agents), and a colorized stream of every request — with drill-down filters, so
 panels, and rotation-safe tailing. One static binary, zero configuration on standard
 Debian/Ubuntu/RHEL/nginx/Laravel Forge layouts.
 
-```
- VIEW: DASHBOARD                    10:42:07  hosts:8  4.2 req/s  18.2K/s  2xx 87% 4xx 9%
- ┌ HOSTS ────────────────────────────┬ TOP URLS ────────────────────────────┐
- │ cms.local   3.1/s  ▁▂▄▆█  1.2k 2% │ GET /panel/login      210   18ms     │
- │ dev.local   0.8/s  ▁▁▂▁▂   340 0% │ GET /api/nodes        188            │
- ├ CLIENTS (who's pulling) ─────────┼ STATUS / METHODS ─────────────────────┤
- │ 192.168.100.219   410 hits   1% ↑ │ 2xx 87%  3xx 2%  4xx 9%  5xx 2%      │
- ├ LIVE REQUESTS ────────────────────┴──────────────────────────────────────┤
- │ 12:46:31 cms.local 192.168.100.219 GET /panel/site 200 4.2K             │
- └──────────────────────────────────────────────────────────────────────────┘
-```
+![wstat dashboard with animal-domain hosts, clients, top URLs and live requests](docs/assets/dashboard-anonymized.png)
+
+*User-provided screenshot edited for privacy: animal-domain host labels,
+example client addresses and demo request paths replace identifying data.*
 
 ## Highlights
 
@@ -67,6 +60,11 @@ cd wstat && go build -o wstat .
 ```
 
 ## Usage
+
+Interactive startup shows a loading spinner while configuration and sources
+are detected, then clears it before opening the dashboard. Quitting leaves a
+fresh line for your shell prompt. Redirected output and non-dashboard commands
+remain free of animation/control sequences.
 
 ```sh
 wstat                    # auto-detect host layout (Apache/nginx config scan + globs)
