@@ -5,6 +5,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-10
+
+### Added
+
+- `F` freezes/resumes Hosts rows and values independently of stream auto-follow,
+  with a visible indicator and immediate catch-up on resume.
+- Services panes support scrolling, search and zoom with separate selections.
+
+### Fixed
+
+- Refresh filter/sort changes immediately and reset affected tables to the top;
+  keep live leaders visible and reset stale offsets when selected rows disappear.
+- Navigate only visible search results; preserve unrelated panel positions and
+  handle Unicode backspace. Keep scrolled requests stable across stream rollover,
+  resume at the newest request, and clamp empty/end selections.
+- Size bordered panels correctly so selected rows and the latest request remain
+  visible across terminal resize and zoom.
+- Keep compact key hints on the bottom terminal row in dashboard, zoom and
+  services views; include the view switch and prevent long headers from
+  pushing help off screen. Narrow terminals prioritize essential bindings.
+
 ## [0.1.1] - 2026-10-09
 
 Performance and monitoring-correctness fixes for all twelve findings in the

@@ -56,9 +56,8 @@ func (f *fakeFCGI) handle(conn net.Conn) {
 		switch hdr[1] {
 		case fcgiParams:
 			params = append(params, body...)
-			if cl == 0 {
-				goto respond
-			}
+			// Wait for the empty STDIN record before responding. Closing at
+			// the PARAMS terminator races the client's final request write.
 		case fcgiStdin:
 			if cl == 0 {
 				goto respond

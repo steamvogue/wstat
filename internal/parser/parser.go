@@ -12,16 +12,19 @@ import (
 
 // Record is one parsed access-log request.
 type Record struct {
-	Vhost  string
-	IP     string
-	Method string
-	Path   string
-	Status int
-	Bytes  int64
-	Time   time.Time
-	UA     string
-	Bot    bool
-	Static bool
+	// StreamID distinguishes even identical requests in a Store's recent stream.
+	// Parsers leave it zero; the Store assigns it on insertion.
+	StreamID uint64
+	Vhost    string
+	IP       string
+	Method   string
+	Path     string
+	Status   int
+	Bytes    int64
+	Time     time.Time
+	UA       string
+	Bot      bool
+	Static   bool
 	// LatencyUs is the request duration in microseconds when the source
 	// format provides one (php-fpm access log %d); 0 otherwise.
 	LatencyUs int64

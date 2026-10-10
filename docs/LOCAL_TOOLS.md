@@ -9,6 +9,10 @@ Verified during the 2026-10-09 quality review on this Linux/ARM64 host.
 - Process sampling: `/usr/bin/pidstat` is available; use `pidstat -u -r -t -p PID 1 15` while the affected process is running. `ps -C wstat -o pid,pcpu,pmem,rss,etime` checks for a running instance. This review found none.
 - `/usr/bin/strace` and `/usr/bin/hyperfine` are available; they were not needed for the measured snapshot experiment.
 - Prefer `rg` for source searches.
+- Terminal capabilities: `/usr/bin/tput`, verified 2026-10-10;
+  `tput -T xterm-256color colors` reports 256. The compiled dashboard's PTY
+  output was also checked for indexed 256-colour sequences with `COLORTERM`
+  unset, using the workload sampler below.
 - Python 3 (`/usr/bin/python3`), standard-library `pty`, `/proc` and `termios` are
   exercised by [the reusable workload sampler](../scripts/measure_workload.py).
   It needs Linux and a compiled wstat binary; see its `--help` for durations/profiles.

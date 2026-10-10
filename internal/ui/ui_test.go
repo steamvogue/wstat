@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/steamvogue/wstat/internal/fpm"
 	"github.com/steamvogue/wstat/internal/logsrc"
@@ -49,8 +52,181 @@ func TestViewRenders(t *testing.T) {
 			t.Errorf("render missing %q", want)
 		}
 	}
-	if strings.Count(out, "\n") > 41 {
-		t.Errorf("render too tall: %d lines", strings.Count(out, "\n"))
+	if lipgloss.Height(out) != m.height {
+		t.Errorf("render height = %d, want %d", lipgloss.Height(out), m.height)
+	}
+}
+
+func TestBottomHelpStaysVisible(t *testing.T) {
+	for _, size := range [][2]int{{40, 12}, {80, 24}, {120, 40}, {160, 44}} {
+		for _, mode := range []string{"dashboard", "zoom", "services", "search"} {
+			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], mode), func(t *testing.T) {
+				m := drive(mkModel(t), tea.WindowSizeMsg{Width: size[0], Height: size[1]}, tickMsg(time.Now()))
+				// Long filter chips used to wrap the header and push help off screen.
+				m.filters.Hosts = map[string]bool{strings.Repeat("long-host", 40): true}
+				m.zoom = mode == "zoom"
+				if mode == "services" {
+					m.view = 1
+				}
+				m.searchMode = mode == "search"
+				m.search = strings.Repeat("search", 40)
+				out := m.render()
+				if lipgloss.Height(out) != m.height || lipgloss.Width(out) > m.width {
+					t.Fatalf("render = %dx%d, terminal = %dx%d", lipgloss.Width(out), lipgloss.Height(out), m.width, m.height)
+				}
+				lines := strings.Split(out, "\n")
+				last := lines[len(lines)-1]
+				if m.searchMode {
+					if !strings.Contains(last, "find:") {
+						t.Fatal("search prompt missing from last terminal row")
+					}
+					return
+				}
+				for _, hint := range []string{"q quit", "Tab focus", "/ find", "v view"} {
+					if !strings.Contains(last, hint) {
+						t.Errorf("last terminal row missing %q", hint)
+					}
+				}
+				if m.width == 160 {
+					hints := []string{"F hosts", "↑↓ move", "⏎ zoom", "s sort", "X clear", "f stream", "h/c/p filter", "x/m/b/t filters", "T theme", "live:0"}
+					if mode == "services" {
+						hints = []string{"↑↓ move", "g/G ends", "⏎ zoom", "1 pools", "2 sources", "3/4 stream", "f stream", "live:0"}
+					}
+					for _, hint := range hints {
+						if !strings.Contains(last, hint) {
+							t.Errorf("wide footer missing %q", hint)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestHostsFreezeKeepsRowsWhileOtherPanelsUpdate(t *testing.T) {
+	m := mkModel(t)
+	m.sorts[0] = store.SortHits
+	m.refresh()
+	m.sel[0] = 1
+	selected := m.hosts[1].Key
+	before := append([]store.Row(nil), m.hosts...)
+	m = drive(m, tea.KeyPressMsg{Text: "F"})
+	for i := 0; i < 100; i++ {
+		m.st.Add(parser.Record{Vhost: selected, IP: "new-client", Method: "GET", Path: "/new", Status: 200, Time: time.Now()})
+	}
+	m.st.Add(parser.Record{Vhost: "new-host", IP: "new-client", Method: "GET", Path: "/new", Status: 200, Time: time.Now()})
+	m = drive(m, tickMsg(time.Now()))
+	if !m.hostsFrozen || m.frozen || !reflect.DeepEqual(m.hosts, before) || m.sel[0] != 1 {
+		t.Fatal("Hosts rows or selection changed while frozen, or stream was frozen")
+	}
+	if m.tot.Reqs != 161 || len(m.urls) != 4 || len(m.clients) != 3 || len(m.stream) == 0 {
+		t.Fatalf("freezing Hosts stopped updates elsewhere: requests=%d URLs=%d clients=%d stream=%d", m.tot.Reqs, len(m.urls), len(m.clients), len(m.stream))
+	}
+	if !strings.Contains(m.panelTitle(0), "[frozen]") {
+		t.Fatal("Hosts freeze indicator missing")
+	}
+	// Freeze stream separately; resuming Hosts must retain that setting.
+	m = drive(m, tea.KeyPressMsg{Text: "f"}, tea.KeyPressMsg{Text: "F"})
+	if m.hostsFrozen || !m.frozen || reflect.DeepEqual(m.hosts, before) || len(m.hosts) != 3 {
+		t.Fatal("Hosts did not resume immediately, or changed stream freeze")
+	}
+	if m.hosts[m.sel[0]].Key != selected || strings.Contains(m.panelTitle(0), "[frozen]") {
+		t.Fatal("resuming Hosts lost selection or kept freeze indicator")
+	}
+}
+
+func TestHostsFilterAndSortChangesResumeUpdates(t *testing.T) {
+	for _, key := range []string{"x", "b", "t", "s", "X"} {
+		t.Run(key, func(t *testing.T) {
+			m := mkModel(t)
+			m.refresh()
+			m = drive(m, tea.KeyPressMsg{Text: "F"}, tea.KeyPressMsg{Text: key})
+			if m.hostsFrozen {
+				t.Fatal("Hosts remained frozen after changing its display settings")
+			}
+		})
+	}
+	m := mkModel(t)
+	m.refresh()
+	m = drive(m, tea.KeyPressMsg{Text: "F"}, tea.KeyPressMsg{Text: "2"}, tea.KeyPressMsg{Text: "s"})
+	if !m.hostsFrozen {
+		t.Fatal("sorting URLs resumed Hosts")
+	}
+}
+
+func TestBotFilterReturnsURLsToTopImmediately(t *testing.T) {
+	s := store.New()
+	add := func(path string, bot bool, count int) {
+		for i := 0; i < count; i++ {
+			s.AddSeed(parser.Record{Vhost: "test.local", IP: "client", Method: "GET", Path: path, Status: 200, Bot: bot, Time: time.Now()})
+		}
+	}
+	add("/former-top", false, 250)
+	add("/former-top", true, 1)
+	for i := 1; i < 40; i++ {
+		add(fmt.Sprintf("/bot-%02d", i), true, 200-i)
+		add(fmt.Sprintf("/bot-%02d", i), false, 1)
+	}
+	m := New(s, nil, nil)
+	m.focus, m.sorts[1] = 1, store.SortHits
+	m.refresh()
+	if m.urls[0].Path != "/former-top" {
+		t.Fatal("fixture must start with a URL that drops to the bottom under the bot filter")
+	}
+	for i, want := range []string{"/bot-01", "/former-top", "/former-top"} {
+		m = drive(m, tea.KeyPressMsg{Text: "b"})
+		if m.focus != 1 || m.sel[1] != 0 || m.urls[0].Path != want {
+			t.Errorf("bot cycle %d: focus=%d selection=%d top=%s, want %s immediately", i, m.focus, m.sel[1], m.urls[0].Path, want)
+		}
+		m = drive(m, tickMsg(time.Now()))
+		if m.sel[1] != 0 || !strings.Contains(strings.Join(m.urlLines(100, 5), "\n"), want) {
+			t.Fatalf("bot cycle %d: tick pushed the top URL out of view (selection=%d)", i, m.sel[1])
+		}
+		// Also reset when the user was already inspecting a lower row.
+		m = drive(m, tea.KeyPressMsg{Text: "G"})
+	}
+}
+
+func TestURLTopStaysAnchoredOnLiveReorder(t *testing.T) {
+	s := store.New()
+	add := func(path string, count int) {
+		for i := 0; i < count; i++ {
+			s.AddSeed(parser.Record{Vhost: "test.local", IP: "client", Method: "GET", Path: path, Status: 200, Time: time.Now()})
+		}
+	}
+	add("/old-top", 10)
+	for i := 0; i < 30; i++ {
+		add(fmt.Sprintf("/url-%02d", i), 1)
+	}
+	m := New(s, nil, nil)
+	m.focus, m.sorts[1] = 1, store.SortHits
+	m.refresh()
+	for i := 0; i < 30; i++ {
+		add(fmt.Sprintf("/url-%02d", i), 20)
+	}
+	m = drive(m, tickMsg(time.Now()))
+	if m.sel[1] != 0 || strings.Contains(strings.Join(m.urlLines(100, 5), "\n"), "/old-top") {
+		t.Fatal("following the old top URL scrolled past the live leaders")
+	}
+}
+
+func TestMissingSelectedURLReturnsToTop(t *testing.T) {
+	s := store.New()
+	for i := 0; i < 40; i++ {
+		for _, method := range []string{"GET", "POST"} {
+			s.AddSeed(parser.Record{Vhost: "test.local", IP: "client", Method: method, Path: fmt.Sprintf("/url-%02d", i), Status: 200, Time: time.Now()})
+		}
+	}
+	m := New(s, nil, nil)
+	m.refresh()
+	m.sel[1] = 20 // GET sorts ahead of POST when metrics tie.
+	if m.urls[m.sel[1]].Method != "GET" {
+		t.Fatal("fixture must select a GET URL")
+	}
+	m.filters.Method = "POST"
+	m.refresh()
+	if m.sel[1] != 0 || len(m.urls) != 40 {
+		t.Fatal("missing selection retained a stale scroll offset")
 	}
 }
 

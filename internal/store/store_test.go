@@ -23,6 +23,28 @@ func botRec(vhost, ip, method, path string, status int, bytes int64) parser.Reco
 	return r
 }
 
+func TestStreamIDsDistinguishIdenticalRequestsAcrossRollover(t *testing.T) {
+	s := New()
+	r := rec("test", "client", "GET", "/same", 200, 1)
+	r.StreamID = 999 // Caller metadata cannot collide with Store-assigned IDs.
+	for i := 0; i < streamCap+120; i++ {
+		s.AddSeed(r)
+	}
+	_, _, _, stream, _, _ := snap(s)
+	for i, row := range stream {
+		want := uint64(streamCap + 120 - len(stream) + i + 1)
+		if row.StreamID != want {
+			t.Fatalf("stream row %d ID=%d, want %d", i, row.StreamID, want)
+		}
+	}
+	lastID := stream[len(stream)-1].StreamID
+	s.Add(r)
+	_, _, _, next, _, _ := snap(s)
+	if next[len(next)-1].StreamID != lastID+1 || stream[len(stream)-1].StreamID != lastID || r.StreamID != 999 {
+		t.Fatal("live insertion reused an ID or mutated a previous snapshot/caller record")
+	}
+}
+
 func allFilters() Filters { return Filters{} }
 
 func snap(s *Store) ([]Row, []Row, []Row, []parser.Record, Totals, int64) {

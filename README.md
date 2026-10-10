@@ -100,11 +100,17 @@ moment they receive traffic.
 Works great over ssh (`ssh host wstat`) and in tmux. Needs read access to the log
 files — on Debian/Ubuntu, membership in the `adm` group is usually enough; no sudo.
 
+Supports `TERM=xterm-256color`; theme colours adapt to the terminal's palette.
+For an xterm-compatible terminal, run `TERM=xterm-256color wstat`.
+
 ### Keymap
+
+The bottom row shows compact key hints, with more bindings visible on wider
+terminals. While searching, it shows the search prompt instead.
 
 | Key | Action |
 |---|---|
-| `tab` / `1`–`4` | focus panel (hosts / urls / clients / stream) |
+| `tab` / `shift+tab` / `1`–`4` | focus dashboard panel (hosts / urls / clients / stream) |
 | `enter` | zoom focused panel · `esc` back |
 | `j` `k` `g` `G` | move selection |
 | `/` | fuzzy search in focused panel (`enter` apply, `esc` cancel) |
@@ -116,10 +122,36 @@ files — on Debian/Ubuntu, membership in the `adm` group is usually enough; no 
 | `b` | cycle bot filter (all → bots → humans) |
 | `t` | hide static assets (.css/.js/images/…) |
 | `s` | cycle panel sort (rate → hits → errors → bytes) |
-| `f` | freeze the stream auto-follow |
+| `f` | pause stream auto-follow / resume immediately at the latest request |
+| `F` | freeze / resume Hosts rows and values; other panels continue updating |
+| `v` | switch dashboard / services |
 | `T` | cycle theme (amber / ocean / mono; honors `NO_COLOR`) |
 | `X` | clear all filters |
 | `q` / `ctrl+c` | quit |
+
+Frozen Hosts show `[frozen]` in their title. Navigation, search and host selection
+still work. Changing the Hosts sort, status/bot/static filters, or clearing
+filters resumes Hosts updates; `F` resumes immediately.
+
+Filter and sort changes refresh immediately and return affected tables to the
+top. While selection is at the top, live refreshes keep the leaders visible;
+when scrolled down, selection follows the chosen row while it remains available.
+
+Search applies only to the selected panel and leaves other panel positions
+alone. The stream uses the same visible search matches for rendering and
+navigation. `Up` or `g` pauses auto-follow; `G` or moving down to the final
+visible request resumes it unless `f` is active. A scrolled stream keeps the
+same request as new records arrive, including identical requests. If that
+request leaves the recent snapshot (up to 100 records matching the global
+filters), selection falls back to the oldest visible request.
+
+In Services, `tab` / `shift+tab` cycles pools, sources and stream; `1` selects
+pools, `2` sources, and `3` or `4` the stream. Arrow keys, `j/k`, `g/G`, search
+and zoom work in each pane. Search matches pool configuration/name or source
+path. Pool/source selection follows its identity on refresh; these controls
+do not move hidden dashboard table selections. The stream position is shared
+between views. At very small terminal heights some
+panels show only their title; use `enter` to zoom the selected panel.
 
 Filters apply to retained detail as follows. Status/bot/static intersections use
 joint counters, including matching bytes, errors, latency and rates.

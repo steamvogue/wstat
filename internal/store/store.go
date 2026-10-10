@@ -269,6 +269,7 @@ type Store struct {
 	stream                              []parser.Record
 	streamLen                           int
 	streamHead                          int
+	streamSequence                      uint64
 	tot                                 totals
 	bad                                 int64
 	urlOverflow                         int64
@@ -402,6 +403,8 @@ func (s *Store) AddBad() {
 }
 
 func (s *Store) pushStream(r parser.Record) {
+	s.streamSequence++
+	r.StreamID = s.streamSequence
 	if s.streamLen < streamCap {
 		s.stream = append(s.stream, r)
 		s.streamLen++
